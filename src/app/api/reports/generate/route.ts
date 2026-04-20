@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
+import PDFDocument from 'pdfkit';
 import { prisma } from '@/lib/db/prisma';
 import { SESSION_COOKIE, validateSessionToken } from '@/lib/auth/session';
 import { parseJsonSafe } from '@/lib/utils';
@@ -96,9 +97,8 @@ async function generateVendorSummary(tenantId: string, format: string, where: ob
     dateFmt(v.contractEndDate), dateFmt(v.lastReviewDate),
   ]);
 
-  if (format === 'csv') {
-    return csvResponse([headers, ...rows], `vendor-summary-${today()}.csv`);
-  }
+  if (format === 'csv') return csvResponse([headers, ...rows], `vendor-summary-${today()}.csv`);
+  if (format === 'pdf') return pdfReport('Vendor Summary', headers, rows, `vendor-summary-${today()}.pdf`);
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Vendors');
@@ -130,7 +130,7 @@ async function generateRiskReport(tenantId: string, format: string, where: objec
     else if (score >= 50) row.getCell(4).font = { color: { argb: 'FFF59E0B' } };
   });
 
-  if (format === 'pdf') return pdfFallback('risk-report', rows, headers);
+  if (format === 'pdf') return pdfReport('Vendor Risk Report', headers, rows, `risk-report-${today()}.pdf`);
   return xlsxResponse(wb, `risk-report-${today()}.xlsx`);
 }
 
@@ -268,34 +268,74 @@ async function generateAuditPackage(tenantId: string, format: string, where: obj
     dateFmt(a.dueDate), dateFmt(a.completedAt), String(a.score ?? ''),
   ]));
 
+  if (format === 'pdf') {
+    const allHeaders = ['Name', 'Criticality', 'Status', 'Risk Score', 'Risk Level'];
+    const allRows = vendors.map((v) => [v.name, v.criticality, v.status, String(v.riskScore ?? '—'), v.riskLevel ?? '—']);
+    return pdfReport('Audit Package — Vendor Summary', allHeaders, allRows, `audit-package-${today()}.pdf`);
+  }
   return xlsxResponse(wb, `audit-package-${today()}.xlsx`);
 }
 
-// Minimal PDF fallback — returns a simple text-based PDF for report types that request PDF
-function pdfFallback(type: string, rows: string[][], headers: string[]) {
-  const lines = [
-    '%PDF-1.4',
-    '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj',
-    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj',
-    '3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj',
-  ];
-  const headerLine = headers.join(' | ');
-  const dataLines = rows.slice(0, 50).map((r) => r.join(' | '));
-  const content = [`BT /F1 10 Tf 40 750 Td`, `(${type.toUpperCase()} REPORT - ${today()}) Tj`];
-  content.push(`0 -14 Td (${headerLine.slice(0, 90)}) Tj`);
-  dataLines.forEach((l) => content.push(`0 -12 Td (${l.slice(0, 90).replace(/[()\\]/g, '')}) Tj`));
-  content.push('ET');
-  const stream = content.join('\n');
-  lines.push(`4 0 obj<</Length ${stream.length}>>stream\n${stream}\nendstream endobj`);
-  lines.push('5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj');
-  lines.push('xref\n0 6');
-  const body = lines.join('\n') + '\n%%EOF';
+function pdfReport(title: string, headers: string[], rows: string[][], filename: string): Promise<NextResponse> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40, size: 'LETTER' });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('error', reject);
+    doc.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      resolve(new NextResponse(buf, {
+        headers: {
+          'content-type': 'application/pdf',
+          'content-disposition': `attachment; filename="${filename}"`,
+        },
+      }));
+    });
 
-  return new NextResponse(body, {
-    headers: {
-      'content-type': 'application/pdf',
-      'content-disposition': `attachment; filename="${type}-${today()}.pdf"`,
-    },
+    // Header
+    doc.fontSize(16).font('Helvetica-Bold').text(title, { align: 'left' });
+    doc.fontSize(9).font('Helvetica').fillColor('#6b7280')
+      .text(`Generated ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, { align: 'left' });
+    doc.moveDown(0.8);
+
+    // Column widths — distribute available width
+    const pageWidth = doc.page.width - 80;
+    const colCount = headers.length;
+    const colWidth = Math.floor(pageWidth / colCount);
+
+    // Table header row
+    const headerY = doc.y;
+    doc.rect(40, headerY, pageWidth, 18).fill('#1e293b');
+    doc.fillColor('#cbd5e1').fontSize(8).font('Helvetica-Bold');
+    headers.forEach((h, i) => {
+      doc.text(h.slice(0, 18), 44 + i * colWidth, headerY + 5, { width: colWidth - 4, ellipsis: true });
+    });
+    doc.moveDown(0.1);
+
+    // Data rows
+    doc.font('Helvetica').fontSize(8).fillColor('#1e293b');
+    rows.forEach((row, ri) => {
+      if (doc.y > doc.page.height - 80) {
+        doc.addPage();
+        doc.fontSize(8).font('Helvetica').fillColor('#1e293b');
+      }
+      const rowY = doc.y + 2;
+      if (ri % 2 === 0) {
+        doc.rect(40, rowY - 1, pageWidth, 16).fill('#f8fafc');
+      }
+      doc.fillColor('#1e293b');
+      row.forEach((cell, i) => {
+        doc.text(String(cell ?? '').slice(0, 24), 44 + i * colWidth, rowY + 2, { width: colWidth - 4, ellipsis: true });
+      });
+      doc.y = rowY + 16;
+    });
+
+    // Footer
+    doc.moveDown(1);
+    doc.fontSize(8).fillColor('#9ca3af')
+      .text(`${rows.length} record${rows.length !== 1 ? 's' : ''} — Confidential`, { align: 'center' });
+
+    doc.end();
   });
 }
 
