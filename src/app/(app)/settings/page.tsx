@@ -28,6 +28,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testingSmtp, setTestingSmtp] = useState(false);
   const [tab, setTab] = useState<Tab>('smtp');
 
   useEffect(() => { load(); }, []);
@@ -43,6 +44,20 @@ export default function SettingsPage() {
 
   function set(k: keyof Settings, v: unknown) {
     setSettings((s) => s ? { ...s, [k]: v } : s);
+  }
+
+  async function testSmtp() {
+    if (!settings) return;
+    setTestingSmtp(true);
+    const res = await fetch('/api/settings/smtp/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+    const data = await res.json();
+    if (res.ok) toast.success(`Test email sent to ${data.to}`);
+    else toast.error(`SMTP test failed: ${data.error}`);
+    setTestingSmtp(false);
   }
 
   async function save() {
@@ -140,6 +155,19 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2">
               <input type="checkbox" id="smtpSecure" checked={settings.smtpSecure} onChange={(e) => set('smtpSecure', e.target.checked)} style={{ width: 'auto' }} />
               <label htmlFor="smtpSecure" className="text-sm text-[var(--color-text-secondary)]">Use SSL/TLS (port 465)</label>
+            </div>
+            <div className="pt-2 border-t border-[var(--color-border)]">
+              <button
+                type="button"
+                onClick={testSmtp}
+                disabled={testingSmtp || !settings.smtpHost}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] disabled:opacity-40 transition-colors"
+              >
+                {testingSmtp ? 'Sending…' : 'Send test email'}
+              </button>
+              <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">
+                Uses the settings above (unsaved changes included). Sends to your account email address.
+              </p>
             </div>
           </div>
         </Card>
