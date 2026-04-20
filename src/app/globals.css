@@ -70,6 +70,19 @@
 
 * {
   box-sizing: border-box;
+  cursor: default;
+}
+
+a, button, [role="button"], select,
+input[type="checkbox"], input[type="radio"],
+input[type="color"], input[type="file"], input[type="range"],
+[data-clickable="true"] {
+  cursor: pointer;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+textarea {
+  cursor: text;
 }
 
 html {

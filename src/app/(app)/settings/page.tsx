@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Save, Server, Brain, Bell, Shield, Workflow, Palette, Users, Plus, Trash2, Edit2, Shield as ShieldIcon } from 'lucide-react';
+import { Save, Server, Brain, Bell, Shield, Workflow, Palette, Users, Plus, Trash2, Edit2, Shield as ShieldIcon, KeyRound } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -21,7 +21,7 @@ interface Settings {
   branding: string;
 }
 
-type Tab = 'smtp' | 'ai' | 'notifications' | 'lifecycle' | 'questionnaire' | 'users' | 'branding';
+type Tab = 'smtp' | 'ai' | 'notifications' | 'lifecycle' | 'questionnaire' | 'users' | 'branding' | 'sso';
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -71,6 +71,7 @@ export default function SettingsPage() {
     { id: 'questionnaire',label: 'Questionnaires',   icon: Shield },
     { id: 'users',        label: 'Users',            icon: Users },
     { id: 'branding',     label: 'Branding & Theme', icon: Palette },
+    { id: 'sso',          label: 'SSO / SAML',       icon: KeyRound },
   ];
 
   return (
@@ -80,7 +81,7 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Tenant Settings</h2>
           <p className="text-sm text-[var(--color-text-muted)]">Configure your workspace settings</p>
         </div>
-        {tab !== 'users' && <Button icon={Save} loading={saving} onClick={save}>Save Changes</Button>}
+        {tab !== 'users' && tab !== 'sso' && <Button icon={Save} loading={saving} onClick={save}>Save Changes</Button>}
       </div>
 
       <div className="flex gap-6 items-start">
@@ -170,10 +171,6 @@ export default function SettingsPage() {
                   <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">API Key</label>
                   <input type="password" value={settings.aiApiKey ?? ''} onChange={(e) => set('aiApiKey', e.target.value)} placeholder="sk-… or Anthropic key" />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Model</label>
-                  <input value={settings.aiModel ?? ''} onChange={(e) => set('aiModel', e.target.value)} placeholder={settings.aiProvider === 'claude' ? 'claude-sonnet-4-6' : 'gpt-4o'} />
-                </div>
                 {settings.aiProvider === 'azure-openai' && (
                   <div>
                     <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Azure OpenAI Base URL</label>
@@ -257,6 +254,8 @@ export default function SettingsPage() {
 
       {tab === 'users' && <UsersPanel />}
 
+      {tab === 'sso' && <SsoPanel />}
+
       {tab === 'branding' && (
         <div className="space-y-5">
           <Card>
@@ -326,6 +325,158 @@ export default function SettingsPage() {
       )}
         </div>{/* end content pane */}
       </div>{/* end flex row */}
+    </div>
+  );
+}
+
+interface SsoConfig {
+  authMode: string; forceSso: boolean;
+  samlDomain: string | null; samlEntityId: string | null;
+  samlAcsUrl: string | null; samlIdpMetadata: string | null;
+}
+
+function SsoPanel() {
+  const toast = useToast();
+  const [cfg, setCfg] = useState<SsoConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/settings/sso').then((r) => r.json()).then((d) => {
+      setCfg(d.sso);
+      setLoading(false);
+    });
+  }, []);
+
+  function set<K extends keyof SsoConfig>(k: K, v: SsoConfig[K]) {
+    setCfg((s) => s ? { ...s, [k]: v } : s);
+  }
+
+  async function save() {
+    if (!cfg) return;
+    setSaving(true);
+    const res = await fetch('/api/settings/sso', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    if (res.ok) toast.success('SSO settings saved');
+    else toast.error('Failed to save SSO settings');
+    setSaving(false);
+  }
+
+  if (loading || !cfg) return <div className="skeleton h-48 rounded-xl" />;
+
+  const isSamlEnabled = cfg.authMode === 'saml' || cfg.authMode === 'both';
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardTitle className="mb-4">SSO / SAML 2.0 Configuration</CardTitle>
+        <p className="text-xs text-[var(--color-text-muted)] mb-5">
+          Configure SAML 2.0 single sign-on for your organization. Users will authenticate via your Identity Provider (IdP).
+          This setting is independent of MFA — email OTP MFA applies to all local logins regardless of SSO mode.
+        </p>
+
+        <div className="space-y-5">
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Authentication Mode</label>
+            <select value={cfg.authMode} onChange={(e) => set('authMode', e.target.value)}>
+              <option value="local">Local only — username/password</option>
+              <option value="both">Local + SSO — users may choose</option>
+              <option value="saml">SSO only — SAML required</option>
+            </select>
+            <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">
+              &ldquo;SSO only&rdquo; redirects all logins to your IdP. Platform admin accounts always retain local access.
+            </p>
+          </div>
+
+          {isSamlEnabled && (
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox" id="forceSso"
+                checked={cfg.forceSso}
+                onChange={(e) => set('forceSso', e.target.checked)}
+                style={{ width: 'auto' }}
+              />
+              <label htmlFor="forceSso" className="text-sm text-[var(--color-text-secondary)]">
+                Force SSO — prevent users from signing in with local credentials
+              </label>
+            </div>
+          )}
+
+          {isSamlEnabled && (
+            <div className="border-t border-[var(--color-border)] pt-5 space-y-4">
+              <p className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">SAML IdP Details</p>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Email Domain</label>
+                <input
+                  value={cfg.samlDomain ?? ''}
+                  onChange={(e) => set('samlDomain', e.target.value)}
+                  placeholder="yourcompany.com"
+                />
+                <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">
+                  Users with this email domain are redirected to your IdP at login.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Entity ID (SP Entity ID)</label>
+                <input
+                  value={cfg.samlEntityId ?? ''}
+                  onChange={(e) => set('samlEntityId', e.target.value)}
+                  placeholder="https://your-app.com/saml/metadata"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Assertion Consumer Service (ACS) URL</label>
+                <input
+                  value={cfg.samlAcsUrl ?? ''}
+                  onChange={(e) => set('samlAcsUrl', e.target.value)}
+                  placeholder="https://your-app.com/api/auth/saml/callback"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">IdP Metadata XML</label>
+                <textarea
+                  rows={8}
+                  value={cfg.samlIdpMetadata ?? ''}
+                  onChange={(e) => set('samlIdpMetadata', e.target.value)}
+                  placeholder="Paste your Identity Provider's SAML metadata XML here…"
+                  className="font-mono text-xs"
+                  style={{ resize: 'vertical' }}
+                />
+                <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">
+                  Obtain this from your IdP (Okta, Azure AD, Google Workspace, etc.). Contains the IdP certificate and SSO URLs.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 pt-4 border-t border-[var(--color-border)] flex justify-end">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <Save size={14} />
+            {saving ? 'Saving…' : 'Save SSO Settings'}
+          </button>
+        </div>
+      </Card>
+
+      <Card>
+        <CardTitle className="mb-2">MFA — Email OTP</CardTitle>
+        <p className="text-xs text-[var(--color-text-muted)]">
+          Email one-time passwords are enabled platform-wide. When a user has MFA enabled on their account,
+          they are prompted to enter a 6-digit code sent to their email address after each successful password login.
+          MFA is configured per-user in the Users tab. It is independent of SSO mode.
+        </p>
+      </Card>
     </div>
   );
 }
