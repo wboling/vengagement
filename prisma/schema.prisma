@@ -1,0 +1,621 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── PLATFORM ────────────────────────────────────────────────────────────────
+
+model PlatformSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// ─── TENANT & AUTH ───────────────────────────────────────────────────────────
+
+model Tenant {
+  id             String  @id @default(cuid())
+  name           String
+  industry       String?
+  primaryContact String?
+  logoUrl        String?
+
+  authMode  String  @default("local") // local | saml | both
+  forceSso  Boolean @default(false)
+
+  // SAML 2.0
+  samlEntityId    String?
+  samlAcsUrl      String?
+  samlIdpMetadata String?
+  samlRoleMapping String?
+  samlDomain      String?
+
+  // Duo MFA
+  duoEnabled        Boolean @default(false)
+  duoIntegrationKey String?
+  duoSecretKey      String?
+  duoApiHostname    String?
+
+  // Feature flags
+  enableVendors        Boolean @default(true)
+  enableQuestionnaires Boolean @default(true)
+  enableDocuments      Boolean @default(true)
+  enableReports        Boolean @default(true)
+  enableLifecycle      Boolean @default(true)
+  enableAiReview       Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users                    User[]
+  sessions                 Session[]
+  auditLogs                AuthAuditLog[]
+  appAuditLogs             AppAuditLog[]
+  settings                 TenantSettings?
+  vendors                  Vendor[]
+  clients                  Client[]
+  documents                VendorDocument[]
+  questionnaires           Questionnaire[]
+  questionnaireAssignments QuestionnaireAssignment[]
+  lifecycleRequests        VendorLifecycleRequest[]
+  riskAssessments          VendorRiskAssessment[]
+  automationRules          AutomationRule[]
+  reports                  Report[]
+}
+
+model TenantSettings {
+  tenantId String @id
+
+  // SMTP (tenant-level override)
+  smtpHost   String?
+  smtpPort   Int?
+  smtpSecure Boolean @default(false)
+  smtpUser   String?
+  smtpPass   String?
+  smtpFrom   String?
+
+  // AI document review
+  aiEnabled  Boolean @default(false)
+  aiProvider String? // claude | openai | azure-openai | gemini
+  aiApiKey   String?
+  aiModel    String?
+  aiBaseUrl  String? // for Azure OpenAI or self-hosted
+
+  // Risk thresholds JSON: { "critical": 75, "high": 50, "medium": 25 }
+  riskThresholds String @default("{\"critical\":75,\"high\":50,\"medium\":25}")
+
+  // Annual review cycle
+  annualReviewMonth      Int @default(1)
+  documentExpiryLeadDays Int @default(30)
+
+  // Notifications
+  notifyDocumentExpiry    Boolean @default(true)
+  notifyQuestionnairesDue Boolean @default(true)
+  notifyNewVendorRequests Boolean @default(true)
+
+  // Lifecycle workflow
+  requireSecurityReview Boolean @default(true)
+  requireLegalReview    Boolean @default(true)
+  requireExecApproval   Boolean @default(false)
+
+  // Questionnaire
+  defaultQuestionnaireIds String  @default("[]") // JSON array of questionnaire IDs
+  allowGuestQuestionnaire Boolean @default(true)
+  guestLinkExpireDays     Int     @default(30)
+
+  // Branding/theme JSON: { primaryColor, accentColor, logoUrl, colorMode }
+  branding String @default("{}")
+
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id       String @id @default(cuid())
+  tenantId String
+  email    String @unique
+  name     String
+  role     String @default("viewer") // admin | company_admin | responder | viewer
+
+  passwordHash String?
+  authType     String  @default("local") // local | saml
+  mustChangePw Boolean @default(false)
+
+  mfaEnabled Boolean @default(false)
+  mfaType    String? // totp | duo | email
+  totpSecret String?
+  duoUserId  String?
+
+  failedAttempts Int       @default(0)
+  lockedUntil   DateTime?
+  lastLogin     DateTime?
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions     Session[]
+  mfaCodes     MfaCode[]
+  pwResetTokens PwResetToken[]
+}
+
+model Session {
+  id        String @id @default(cuid())
+  userId    String
+  tenantId  String
+  tokenHash String @unique
+
+  ipAddress   String?
+  userAgent   String?
+  mfaVerified Boolean @default(false)
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  lastUsed  DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model MfaCode {
+  id        String   @id @default(cuid())
+  userId    String
+  codeHash  String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PwResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuthAuditLog {
+  id        Int      @id @default(autoincrement())
+  tenantId  String?
+  userId    String?
+  email     String?
+  eventType String // login_fail | login_success | lockout | mfa_verify | sso_login | password_change | logout
+  ipAddress String?
+  userAgent String?
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+}
+
+// ─── VENDOR ──────────────────────────────────────────────────────────────────
+
+model Vendor {
+  id       String @id @default(cuid())
+  tenantId String
+
+  name        String
+  legalName   String?
+  website     String?
+  description String?
+  // JSON array: ["SaaS","IaaS"] — supports multiple categories
+  category    String @default("[]")
+
+  criticality String @default("medium") // critical | high | medium | low
+  status      String @default("active") // active | inactive | pending | offboarding | offboarded
+
+  // Exempt vendors (e.g., Microsoft, AWS, Google) — pull docs from trust center
+  isExempt       Boolean @default(false)
+  exemptReason   String?
+  trustCenterUrl String?
+
+  primaryContactName  String?
+  primaryContactEmail String?
+  primaryContactPhone String?
+
+  riskScore    Int?
+  riskLevel    String? // critical | high | medium | low
+  riskOverride Boolean @default(false)
+
+  lastReviewDate DateTime?
+  nextReviewDate DateTime?
+
+  // Data handling
+  processesPII       Boolean @default(false)
+  processesPHI       Boolean @default(false)
+  processesFinancial Boolean @default(false)
+  dataRetentionDays  Int?
+  dataLocation       String?
+
+  // Contract
+  contractStartDate DateTime?
+  contractEndDate   DateTime?
+  contractValue     Float?
+
+  tags  String @default("[]")
+  notes String?
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  applications             VendorApplication[]
+  documents                VendorDocument[]
+  questionnaireAssignments QuestionnaireAssignment[]
+  riskAssessments          VendorRiskAssessment[]
+  lifecycleRequest         VendorLifecycleRequest?
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, criticality])
+}
+
+model VendorApplication {
+  id       String @id @default(cuid())
+  vendorId String
+  tenantId String
+
+  name        String
+  description String?
+  appType     String? // SaaS | API | On-premise | Mobile | Other
+  url         String?
+
+  dataClassification String  @default("internal") // public | internal | confidential | restricted
+  containsPII        Boolean @default(false)
+  containsPHI        Boolean @default(false)
+  containsFinancial  Boolean @default(false)
+  userCount          Int?
+
+  businessCriticality String @default("medium")
+  status              String @default("active")
+  notes               String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([tenantId])
+}
+
+// ─── CLIENT ──────────────────────────────────────────────────────────────────
+
+model Client {
+  id       String @id @default(cuid())
+  tenantId String
+
+  name   String
+  matter String? // matter number or client reference code
+  type   String  @default("corporate") // corporate | litigation | transactional | advisory
+
+  status String @default("active") // active | inactive | closed
+
+  primaryContactName  String?
+  primaryContactEmail String?
+
+  notes String?
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documents VendorDocument[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+// ─── DOCUMENT ────────────────────────────────────────────────────────────────
+
+model VendorDocument {
+  id       String  @id @default(cuid())
+  vendorId String?
+  clientId String? // OCGs are tied to clients, not vendors
+  tenantId String
+
+  documentType String // BAA | NDA | MSA | SLA | DPA | SOC2Report | ISO27001Cert | PenTestReport | OCG | Contract | Questionnaire | TrustCenterReport | Other
+  name         String
+  description  String?
+
+  // Vercel Blob storage
+  fileKey    String?
+  fileUrl    String?
+  fileName   String?
+  fileSize   Int?
+  mimeType   String?
+
+  documentDate DateTime?
+  expiresAt    DateTime?
+  renewalDate  DateTime? // for contracts
+  uploadedAt   DateTime  @default(now())
+  uploadedBy   String?
+
+  // AI Review
+  aiReviewStatus String  @default("not_reviewed") // not_reviewed | pending | in_progress | approved | flagged | failed
+  aiReviewResult String? // JSON: { summary, findings, riskFlags, keyProvisions, recommendations, riskContributors }
+  aiReviewedAt   DateTime?
+  aiProvider     String?
+
+  // Manual approval workflow
+  reviewStatus  String    @default("pending") // pending | approved | needs_revision | rejected
+  isApproved    Boolean   @default(false)
+  approvedBy    String?
+  approvedAt    DateTime?
+  approvalNotes String?
+
+  tags String @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([clientId])
+  @@index([tenantId])
+  @@index([tenantId, documentType])
+  @@index([tenantId, reviewStatus])
+}
+
+// ─── QUESTIONNAIRES ──────────────────────────────────────────────────────────
+
+model Questionnaire {
+  id       String  @id @default(cuid())
+  tenantId String? // null = platform built-in template
+
+  name        String
+  description String?
+  type        String @default("custom") // sig-core | sig-lite | dpa | security-assessment | custom
+  version     String @default("1.0")
+
+  sections String // JSON: QuestionnaireSection[]
+
+  isBuiltIn Boolean @default(false)
+  isActive  Boolean @default(true)
+  isPublic  Boolean @default(false)
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant?                   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  assignments QuestionnaireAssignment[]
+}
+
+model QuestionnaireAssignment {
+  id              String @id @default(cuid())
+  vendorId        String
+  tenantId        String
+  questionnaireId String
+
+  assignedBy String?
+  assignedAt DateTime @default(now())
+  dueDate    DateTime?
+
+  // External vendor access (guest link)
+  vendorContactName  String?
+  vendorContactEmail String?
+  accessToken        String?  @unique
+  accessTokenExpiry  DateTime?
+
+  status String @default("pending") // pending | in_progress | submitted | reviewed | approved | expired | cancelled
+
+  reminderCount    Int      @default(0)
+  lastReminderSent DateTime?
+
+  cycle     String @default("annual") // annual | adhoc
+  yearCycle Int?
+
+  responses   String? // JSON: { questionId: { response, comments } }
+  completedAt DateTime?
+
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  reviewNotes String?
+  score       Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor        Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  questionnaire Questionnaire @relation(fields: [questionnaireId], references: [id])
+
+  @@index([vendorId])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([accessToken])
+}
+
+// ─── RISK ─────────────────────────────────────────────────────────────────────
+
+model VendorRiskAssessment {
+  id       String @id @default(cuid())
+  vendorId String
+  tenantId String
+
+  riskScore Int
+  riskLevel String // critical | high | medium | low
+
+  // JSON: { dataAccess, criticality, contractual, compliance, securityPosture, questionnaireScore }
+  riskFactors String @default("{}")
+
+  // JSON: [{ source, description, severity, mitigation }] — specific items driving up risk
+  riskContributors String @default("[]")
+
+  assessedBy String?
+  assessedAt DateTime @default(now())
+
+  status String  @default("draft") // draft | finalized
+  notes  String?
+
+  nextAssessmentDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([tenantId])
+}
+
+// ─── LIFECYCLE ───────────────────────────────────────────────────────────────
+
+model VendorLifecycleRequest {
+  id       String @id @default(cuid())
+  tenantId String
+
+  vendorName        String
+  vendorLegalName   String?
+  vendorWebsite     String?
+  vendorDescription String?
+  vendorCategory    String?
+
+  businessJustification String?
+  estimatedDataTypes    String  @default("[]")
+  estimatedCriticality  String  @default("medium")
+  applications          String  @default("[]") // JSON array
+
+  requestedBy String?
+  requestedAt DateTime @default(now())
+
+  status      String @default("draft") // draft | submitted | under_review | approved | rejected | onboarding | completed
+  currentStep String @default("submission") // submission | security_review | legal_review | exec_approval | document_collection | questionnaire | complete
+
+  // JSON: [{ role, userId, userName, status, notes, actionedAt }]
+  approvals String @default("[]")
+
+  rejectionReason String?
+  adminNotes      String?
+
+  vendorId String? @unique
+
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendor Vendor? @relation(fields: [vendorId], references: [id])
+  steps  VendorLifecycleStep[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+model VendorLifecycleStep {
+  id        String @id @default(cuid())
+  requestId String
+
+  stepType  String // submission | security_review | legal_review | exec_approval | document_request | questionnaire_assignment | complete
+  stepOrder Int
+
+  status     String  @default("pending") // pending | in_progress | completed | skipped | blocked
+  assignedTo String?
+
+  completedBy String?
+  completedAt DateTime?
+  notes       String?
+  metadata    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  request VendorLifecycleRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+}
+
+// ─── AUTOMATION ──────────────────────────────────────────────────────────────
+
+model AutomationRule {
+  id       String @id @default(cuid())
+  tenantId String
+
+  name        String
+  description String?
+  triggerType String // annual_review | document_expiry | questionnaire_due | exempt_reminder | contract_expiry
+
+  // JSON: { leadDays, frequency, targetCriticality, questionnaireId, etc. }
+  config   String  @default("{}")
+  isActive Boolean @default(true)
+
+  lastRun DateTime?
+  nextRun DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// ─── REPORTS ─────────────────────────────────────────────────────────────────
+
+model Report {
+  id       String @id @default(cuid())
+  tenantId String
+
+  name   String
+  type   String // vendor-summary | risk-report | compliance-matrix | document-status | questionnaire-status | audit-package
+  format String @default("xlsx") // xlsx | pdf | csv
+
+  fileKey  String?
+  fileUrl  String?
+  fileName String?
+  fileSize Int?
+
+  filters String @default("{}")
+
+  generatedBy String?
+  generatedAt DateTime @default(now())
+  expiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// ─── APP AUDIT LOG ───────────────────────────────────────────────────────────
+
+model AppAuditLog {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  userId       String?
+  userEmail    String?
+  userRole     String?
+  action       String
+  resource     String
+  resourceId   String?
+  resourceName String?
+  details      String?
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, resource])
+  @@index([userId])
+}
