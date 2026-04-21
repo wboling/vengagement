@@ -103,8 +103,25 @@ export const DOC_TYPE_LABELS: Record<string, string> = {
   TrustCenterReport: 'Trust Center Report',
   InternalPolicy: 'Internal Policy',
   Questionnaire: 'Questionnaire',
+  IncidentResponsePlan: 'Incident Response Plan',
+  BCPDRPlan: 'BCP / DR Plan',
+  SubprocessorList: 'Sub-processor List',
+  DataFlowDiagram: 'Data Flow Diagram',
+  CyberInsuranceCert: 'Cyber Insurance Certificate',
+  VulnerabilityDisclosurePolicy: 'Vulnerability Disclosure Policy',
+  DataResidencyStatement: 'Data Residency Statement',
   Other: 'Other',
 };
+
+export function docRequestStatusColor(status: string): string {
+  switch (status) {
+    case 'received': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    case 'pending':  return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    case 'overdue':  return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+    case 'waived':   return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+    default:         return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+  }
+}
 
 export function slugify(text: string): string {
   return text.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');

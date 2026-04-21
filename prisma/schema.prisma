@@ -59,6 +59,7 @@ model Tenant {
   vendors                  Vendor[]
   clients                  Client[]
   documents                VendorDocument[]
+  documentRequests         DocumentRequest[]
   questionnaires           Questionnaire[]
   questionnaireAssignments QuestionnaireAssignment[]
   lifecycleRequests        VendorLifecycleRequest[]
@@ -224,6 +225,10 @@ model Vendor {
   primaryContactEmail String?
   primaryContactPhone String?
 
+  techContactName  String?
+  techContactEmail String?
+  techContactPhone String?
+
   riskScore    Int?
   riskLevel    String? // critical | high | medium | low
   riskOverride Boolean @default(false)
@@ -232,11 +237,13 @@ model Vendor {
   nextReviewDate DateTime?
 
   // Data handling
-  processesPII       Boolean @default(false)
-  processesPHI       Boolean @default(false)
-  processesFinancial Boolean @default(false)
-  dataRetentionDays  Int?
-  dataLocation       String?
+  processesPII                    Boolean @default(false)
+  processesPHI                    Boolean @default(false)
+  processesFinancial              Boolean @default(false)
+  processesConfidentialFirmData   Boolean @default(false)
+  processesConfidentialClientData Boolean @default(false)
+  dataRetentionDays               Int?
+  dataLocation                    String?
 
   // Contract
   contractStartDate DateTime?
@@ -253,6 +260,7 @@ model Vendor {
   tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   applications             VendorApplication[]
   documents                VendorDocument[]
+  documentRequests         DocumentRequest[]
   questionnaireAssignments QuestionnaireAssignment[]
   riskAssessments          VendorRiskAssessment[]
   lifecycleRequest         VendorLifecycleRequest?
@@ -566,6 +574,34 @@ model AutomationRule {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+}
+
+// ─── DOCUMENT REQUESTS ───────────────────────────────────────────────────────
+
+model DocumentRequest {
+  id       String @id @default(cuid())
+  tenantId String
+  vendorId String
+
+  documentType String // mirrors VendorDocument.documentType values + extended catalog types
+  label        String? // human-readable override
+  description  String?
+  nistRef      String? // primary NIST reference (display)
+
+  status  String    @default("pending") // pending | received | waived | overdue
+  dueDate DateTime?
+  notes   String?
+
+  requestedBy String?
+  requestedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([tenantId])
+  @@index([tenantId, status])
 }
 
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
