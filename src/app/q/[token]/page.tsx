@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { CheckCircle, AlertCircle, Upload, FolderCheck, Clock } from 'lucide-react';
+import { CheckCircle, AlertCircle, Upload, FolderCheck, Clock, MessageSquare } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 interface Question {
@@ -27,10 +27,14 @@ interface Assignment {
   documentRequests: DocRequest[];
 }
 
+const YES_NO_NA = ['Yes', 'No', 'N/A'] as const;
+
 export default function GuestQuestionnairePage() {
   const { token } = useParams<{ token: string }>();
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [responses, setResponses] = useState<Record<string, string>>({});
+  const [comments, setComments] = useState<Record<string, string>>({});
+  const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -50,10 +54,14 @@ export default function GuestQuestionnairePage() {
       const data = await res.json();
       setAssignment({ ...data.assignment, documentRequests: data.assignment.documentRequests ?? [] });
       const prefilled: Record<string, string> = {};
+      const prefilledComments: Record<string, string> = {};
       Object.entries(data.assignment.responses ?? {}).forEach(([k, v]) => {
-        prefilled[k] = (v as { response: string }).response ?? '';
+        const entry = v as { response: string; comments?: string };
+        prefilled[k] = entry.response ?? '';
+        if (entry.comments) prefilledComments[k] = entry.comments;
       });
       setResponses(prefilled);
+      setComments(prefilledComments);
     }
     setLoading(false);
   }
@@ -85,7 +93,6 @@ export default function GuestQuestionnairePage() {
     e.preventDefault();
     if (!assignment) return;
 
-    // Validate required questions
     for (const section of assignment.sections) {
       for (const q of section.questions) {
         if (q.required && !responses[q.id]?.trim()) {
@@ -96,8 +103,11 @@ export default function GuestQuestionnairePage() {
     }
 
     setSubmitting(true);
-    const payload: Record<string, { response: string }> = {};
-    Object.entries(responses).forEach(([k, v]) => { payload[k] = { response: v }; });
+    const payload: Record<string, { response: string; comments?: string }> = {};
+    Object.entries(responses).forEach(([k, v]) => {
+      payload[k] = { response: v };
+      if (comments[k]?.trim()) payload[k].comments = comments[k].trim();
+    });
 
     const res = await fetch(`/api/q/${token}`, {
       method: 'POST',
@@ -115,6 +125,14 @@ export default function GuestQuestionnairePage() {
 
   function setResponse(qId: string, value: string) {
     setResponses((prev) => ({ ...prev, [qId]: value }));
+  }
+
+  function setComment(qId: string, value: string) {
+    setComments((prev) => ({ ...prev, [qId]: value }));
+  }
+
+  function toggleComment(qId: string) {
+    setExpandedComments((prev) => ({ ...prev, [qId]: !prev[qId] }));
   }
 
   function toggleMulti(qId: string, option: string) {
@@ -168,9 +186,7 @@ export default function GuestQuestionnairePage() {
           <h1 className="text-xl font-semibold">{assignment.questionnaireName}</h1>
           <p className="text-sm text-[#8b9bb4] mt-1">
             Requested for: <span className="text-white font-medium">{assignment.vendorName}</span>
-            {assignment.dueDate && (
-              <> · Due {formatDate(assignment.dueDate)}</>
-            )}
+            {assignment.dueDate && <> · Due {formatDate(assignment.dueDate)}</>}
           </p>
           {assignment.questionnaireDescription && (
             <p className="text-sm text-[#8b9bb4] mt-2">{assignment.questionnaireDescription}</p>
@@ -191,132 +207,176 @@ export default function GuestQuestionnairePage() {
               )}
             </div>
 
-            <div className="space-y-5">
-              {section.questions.map((q, qi) => (
-                <div key={q.id} className="bg-[#131929] border border-[#1e2a3a] rounded-xl p-4">
-                  <label className="block text-sm font-medium text-white mb-0.5">
-                    {qi + 1}. {q.text}
-                    {q.required && <span className="text-rose-400 ml-1">*</span>}
-                  </label>
-                  {q.helpText && <p className="text-xs text-[#8b9bb4] mb-3">{q.helpText}</p>}
+            <div className="space-y-4">
+              {section.questions.map((q, qi) => {
+                const hasComment = !!comments[q.id]?.trim();
+                const commentOpen = expandedComments[q.id] || hasComment;
 
-                  {q.type === 'text' && (
-                    <input
-                      className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#4a5568] outline-none focus:border-indigo-500"
-                      value={responses[q.id] ?? ''}
-                      onChange={(e) => setResponse(q.id, e.target.value)}
-                      required={q.required}
-                    />
-                  )}
-
-                  {q.type === 'textarea' && (
-                    <textarea
-                      className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#4a5568] outline-none focus:border-indigo-500 min-h-[80px] resize-y"
-                      value={responses[q.id] ?? ''}
-                      onChange={(e) => setResponse(q.id, e.target.value)}
-                      required={q.required}
-                    />
-                  )}
-
-                  {q.type === 'boolean' && (
-                    <div className="flex gap-3">
-                      {['Yes', 'No'].map((opt) => (
-                        <label key={opt} className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name={q.id}
-                            value={opt}
-                            checked={responses[q.id] === opt}
-                            onChange={() => setResponse(q.id, opt)}
-                            required={q.required}
-                            className="accent-indigo-500"
-                          />
-                          <span className="text-sm text-white">{opt}</span>
+                return (
+                  <div key={q.id} className="bg-[#131929] border border-[#1e2a3a] rounded-xl overflow-hidden">
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <label className="text-sm font-medium text-white leading-snug">
+                          <span className="text-[#4a5a72] mr-1.5">{qi + 1}.</span>
+                          {q.text}
+                          {q.required && <span className="text-rose-400 ml-1">*</span>}
                         </label>
-                      ))}
-                    </div>
-                  )}
+                      </div>
 
-                  {q.type === 'select' && (
-                    <select
-                      className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
-                      value={responses[q.id] ?? ''}
-                      onChange={(e) => setResponse(q.id, e.target.value)}
-                      required={q.required}
-                    >
-                      <option value="">Select…</option>
-                      {(q.options ?? []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  )}
+                      {q.helpText && (
+                        <p className="text-xs text-[#8b9bb4] mb-3 ml-5">{q.helpText}</p>
+                      )}
 
-                  {q.type === 'multiselect' && (
-                    <div className="space-y-2">
-                      {(q.options ?? []).map((opt) => {
-                        const selected = (responses[q.id] ?? '').split(',').map((s) => s.trim()).includes(opt);
-                        return (
-                          <label key={opt} className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={selected}
-                              onChange={() => toggleMulti(q.id, opt)}
-                              className="accent-indigo-500"
-                              style={{ width: 'auto' }}
-                            />
-                            <span className="text-sm text-white">{opt}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
+                      {/* yes-no-na (primary type for SIG questionnaires) */}
+                      {(q.type === 'yes-no-na' || q.type === 'boolean') && (
+                        <div className="flex gap-2 ml-5">
+                          {(q.type === 'yes-no-na' ? YES_NO_NA : ['Yes', 'No']).map((opt) => {
+                            const selected = responses[q.id] === opt;
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => setResponse(q.id, selected ? '' : opt)}
+                                className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+                                  selected
+                                    ? opt === 'Yes'
+                                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                                      : opt === 'No'
+                                      ? 'bg-rose-500/20 border-rose-500/50 text-rose-300'
+                                      : 'bg-[#1e2a3a] border-[#3a4a6a] text-[#8b9bb4]'
+                                    : 'bg-[#0f1525] border-[#1e2a3a] text-[#8b9bb4] hover:border-[#3a4a6a] hover:text-white'
+                                }`}
+                              >
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
 
-                  {q.type === 'date' && (
-                    <input
-                      type="date"
-                      className="bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
-                      value={responses[q.id] ?? ''}
-                      onChange={(e) => setResponse(q.id, e.target.value)}
-                      required={q.required}
-                    />
-                  )}
-
-                  {q.type === 'number' && (
-                    <input
-                      type="number"
-                      className="bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500 w-40"
-                      value={responses[q.id] ?? ''}
-                      onChange={(e) => setResponse(q.id, e.target.value)}
-                      required={q.required}
-                    />
-                  )}
-
-                  {q.type === 'file' && (
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1e2a3a] hover:border-indigo-500/40 text-xs text-[#8b9bb4] transition-colors w-fit">
-                        <Upload size={11} />
-                        {responses[q.id] ? `Uploaded: ${responses[q.id]}` : 'Choose file'}
+                      {q.type === 'text' && (
                         <input
-                          type="file"
-                          accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const fd = new FormData();
-                            fd.append('file', file);
-                            fd.append('documentType', 'Other');
-                            fd.append('name', file.name);
-                            const res = await fetch(`/api/q/${token}/upload`, { method: 'POST', body: fd });
-                            if (res.ok) setResponse(q.id, file.name);
-                          }}
+                          className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#4a5568] outline-none focus:border-indigo-500"
+                          value={responses[q.id] ?? ''}
+                          onChange={(e) => setResponse(q.id, e.target.value)}
+                          required={q.required}
                         />
-                      </label>
-                      {responses[q.id] && (
-                        <p className="text-xs text-emerald-400">✓ File uploaded successfully</p>
+                      )}
+
+                      {q.type === 'textarea' && (
+                        <textarea
+                          className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#4a5568] outline-none focus:border-indigo-500 min-h-[80px] resize-y"
+                          value={responses[q.id] ?? ''}
+                          onChange={(e) => setResponse(q.id, e.target.value)}
+                          required={q.required}
+                        />
+                      )}
+
+                      {q.type === 'select' && (
+                        <select
+                          className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                          value={responses[q.id] ?? ''}
+                          onChange={(e) => setResponse(q.id, e.target.value)}
+                          required={q.required}
+                        >
+                          <option value="">Select…</option>
+                          {(q.options ?? []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      )}
+
+                      {q.type === 'multiselect' && (
+                        <div className="space-y-2 ml-5">
+                          {(q.options ?? []).map((opt) => {
+                            const selected = (responses[q.id] ?? '').split(',').map((s) => s.trim()).includes(opt);
+                            return (
+                              <label key={opt} className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={() => toggleMulti(q.id, opt)}
+                                  className="accent-indigo-500"
+                                  style={{ width: 'auto' }}
+                                />
+                                <span className="text-sm text-white">{opt}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {q.type === 'date' && (
+                        <input
+                          type="date"
+                          className="bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                          value={responses[q.id] ?? ''}
+                          onChange={(e) => setResponse(q.id, e.target.value)}
+                          required={q.required}
+                        />
+                      )}
+
+                      {q.type === 'number' && (
+                        <input
+                          type="number"
+                          className="bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500 w-40"
+                          value={responses[q.id] ?? ''}
+                          onChange={(e) => setResponse(q.id, e.target.value)}
+                          required={q.required}
+                        />
+                      )}
+
+                      {q.type === 'file' && (
+                        <div className="space-y-2 ml-5">
+                          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1e2a3a] hover:border-indigo-500/40 text-xs text-[#8b9bb4] transition-colors w-fit">
+                            <Upload size={11} />
+                            {responses[q.id] ? `Uploaded: ${responses[q.id]}` : 'Choose file'}
+                            <input
+                              type="file"
+                              accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const fd = new FormData();
+                                fd.append('file', file);
+                                fd.append('documentType', 'Other');
+                                fd.append('name', file.name);
+                                const res = await fetch(`/api/q/${token}/upload`, { method: 'POST', body: fd });
+                                if (res.ok) setResponse(q.id, file.name);
+                              }}
+                            />
+                          </label>
+                          {responses[q.id] && (
+                            <p className="text-xs text-emerald-400">✓ File uploaded successfully</p>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {/* Notes / comments toggle */}
+                    <div className="border-t border-[#1e2a3a]">
+                      {!commentOpen ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleComment(q.id)}
+                          className="flex items-center gap-1.5 px-4 py-2 text-xs text-[#4a5a72] hover:text-[#8b9bb4] transition-colors w-full text-left"
+                        >
+                          <MessageSquare size={11} />
+                          Add notes or comments
+                        </button>
+                      ) : (
+                        <div className="p-3">
+                          <textarea
+                            placeholder="Notes or comments (optional)…"
+                            value={comments[q.id] ?? ''}
+                            onChange={(e) => setComment(q.id, e.target.value)}
+                            className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#4a5568] outline-none focus:border-indigo-500/50 min-h-[56px] resize-y"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}
@@ -330,7 +390,7 @@ export default function GuestQuestionnairePage() {
                 <h2 className="text-base font-semibold text-white">Requested Documents</h2>
               </div>
               <p className="text-sm text-[#8b9bb4]">
-                Please upload the following documents as part of your due diligence submission. Documents marked as required support our NIST CSF supply chain risk management program.
+                Please upload the following documents as part of your due diligence submission.
               </p>
             </div>
 
