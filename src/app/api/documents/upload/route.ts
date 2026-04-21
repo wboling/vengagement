@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { SESSION_COOKIE, validateSessionToken, isResponder } from '@/lib/auth/session';
 import { logAudit } from '@/lib/audit';
 import { validateDocumentFile, str } from '@/lib/validation';
+import { extractTextFromBuffer } from '@/lib/ai/document-review';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,9 +52,7 @@ export async function POST(req: NextRequest) {
   let fileKey: string | null = storageKey;
 
   const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
-  const hasValidToken = blobToken && blobToken.startsWith('vercel_blob_rw_') && blobToken.length > 30;
-
-  if (hasValidToken) {
+  if (blobToken) {
     try {
       const blob = await put(storageKey, buffer, {
         access: 'public',
@@ -63,7 +62,7 @@ export async function POST(req: NextRequest) {
       fileUrl = blob.url;
       fileKey = blob.pathname;
     } catch (err) {
-      console.warn('Vercel Blob upload failed, storing reference only:', err);
+      console.error('Vercel Blob upload failed:', err);
     }
   }
 
@@ -96,6 +95,15 @@ export async function POST(req: NextRequest) {
     const settings = await prisma.tenantSettings.findUnique({ where: { tenantId: session.tenantId } });
     const hasPlatformAi = !!(process.env.AI_API_KEY && process.env.AI_PROVIDER);
     if (settings?.aiEnabled || hasPlatformAi) {
+      // Extract text now while buffer is in memory; pass it to the review
+      // route so it doesn't need to re-fetch the file from blob storage.
+      let extractedText: string | null = null;
+      try {
+        extractedText = await extractTextFromBuffer(buffer, file.type);
+      } catch (err) {
+        console.error('Text extraction at upload time failed:', (err as Error).message);
+      }
+
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ??
         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
       fetch(`${appUrl}/api/documents/${document.id}/review`, {
@@ -104,7 +112,7 @@ export async function POST(req: NextRequest) {
           'content-type': 'application/json',
           cookie: `vg_session=${token}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify(extractedText ? { extractedText } : {}),
       }).catch(console.error);
     }
   }

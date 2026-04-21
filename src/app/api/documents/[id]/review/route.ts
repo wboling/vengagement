@@ -28,24 +28,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let fileText: string;
 
   try {
-    // If a buffer was passed directly (from upload flow), ignore it and use Blob URL
-    if (document.fileUrl) {
+    const body = await req.json().catch(() => null);
+
+    if (typeof body?.extractedText === 'string' && body.extractedText.trim().length > 0) {
+      // Text was extracted at upload time and passed directly — use it
+      fileText = body.extractedText;
+    } else if (document.fileUrl) {
+      // Fall back to fetching from Vercel Blob
       const response = await fetch(document.fileUrl);
       if (!response.ok) throw new Error(`Could not fetch file: ${response.status}`);
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       fileText = await extractTextFromBuffer(buffer, document.mimeType ?? 'application/pdf');
     } else {
-      // Last-resort: try to use a buffer passed in the body
-      const body = await req.json().catch(() => null);
-      if (body?.buffer && body?.mimeType) {
-        const buffer = Buffer.from(body.buffer, 'base64');
-        fileText = await extractTextFromBuffer(buffer, body.mimeType);
-      } else {
-        console.error(`[AI Review] doc=${id}: no fileUrl and no buffer in request body`);
-        await prisma.vendorDocument.update({ where: { id }, data: { aiReviewStatus: 'failed' } });
-        return NextResponse.json({ error: 'No file available for review' }, { status: 400 });
-      }
+      console.error(`[AI Review] doc=${id}: no extractedText in body and no fileUrl`);
+      await prisma.vendorDocument.update({ where: { id }, data: { aiReviewStatus: 'failed' } });
+      return NextResponse.json({ error: 'No file content available for review. Re-upload the document to retry.' }, { status: 400 });
     }
   } catch (err) {
     console.error(`[AI Review] doc=${id} text extraction failed:`, (err as Error).message);
