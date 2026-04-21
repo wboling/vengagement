@@ -21,6 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const settings = await prisma.tenantSettings.findUnique({ where: { tenantId: session.tenantId } });
   const hasPlatformAi = !!(process.env.AI_API_KEY && process.env.AI_PROVIDER);
   if (!settings?.aiEnabled && !hasPlatformAi) {
+    console.error(`[AI Review] doc=${id} tenant=${session.tenantId}: AI not configured (aiEnabled=${settings?.aiEnabled}, hasPlatformAi=${hasPlatformAi})`);
     return NextResponse.json({ error: 'AI review not configured. Enable it in Settings → AI Configuration.' }, { status: 400 });
   }
 
@@ -41,15 +42,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         const buffer = Buffer.from(body.buffer, 'base64');
         fileText = await extractTextFromBuffer(buffer, body.mimeType);
       } else {
+        console.error(`[AI Review] doc=${id}: no fileUrl and no buffer in request body`);
         await prisma.vendorDocument.update({ where: { id }, data: { aiReviewStatus: 'failed' } });
         return NextResponse.json({ error: 'No file available for review' }, { status: 400 });
       }
     }
   } catch (err) {
+    console.error(`[AI Review] doc=${id} text extraction failed:`, (err as Error).message);
     await prisma.vendorDocument.update({ where: { id }, data: { aiReviewStatus: 'failed' } });
     return NextResponse.json({ error: `Text extraction failed: ${(err as Error).message}` }, { status: 400 });
   }
 
+  console.log(`[AI Review] doc=${id} extracted ${fileText.length} chars, starting review`);
   const result = await reviewDocument(id, session.tenantId, fileText);
 
   return NextResponse.json({ success: true, result });

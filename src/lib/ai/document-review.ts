@@ -639,11 +639,18 @@ export async function extractTextFromBuffer(
 ): Promise<string> {
   if (mimeType === 'application/pdf') {
     try {
-      const pdfParse = (await import('pdf-parse')).default;
+      // Use the library path directly to avoid pdf-parse's test-file loading on cold starts
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string }>;
       const data = await pdfParse(buffer);
+      if (!data.text || data.text.trim().length < 50) {
+        throw new Error('PDF appears to be a scanned image with no embedded text. Please upload a text-based PDF or a Word document.');
+      }
       return data.text;
-    } catch {
-      throw new Error('Could not extract text from PDF');
+    } catch (err) {
+      throw new Error((err as Error).message.startsWith('PDF appears')
+        ? (err as Error).message
+        : `Could not extract text from PDF: ${(err as Error).message}`);
     }
   }
 
