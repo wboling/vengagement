@@ -251,6 +251,44 @@ export async function sendLifecycleApprovalRequest(
   });
 }
 
+export async function sendDocumentRequestReminder(
+  to: string,
+  vendorName: string,
+  documents: Array<{ label: string; dueDate: Date | null; nistRef: string | null }>,
+  tenantId: string
+): Promise<void> {
+  const config = await getSmtpConfig(tenantId);
+  if (!config) throw new Error('SMTP not configured');
+
+  const transporter = await createTransporter(config);
+
+  const rows = documents
+    .map((d) => {
+      const due = d.dueDate
+        ? `<span style="color:#f59e0b;"> — Due ${new Date(d.dueDate).toLocaleDateString()}</span>`
+        : '';
+      const ref = d.nistRef ? ` <span style="font-size:11px;color:#4a5a72;">(${d.nistRef})</span>` : '';
+      return `<li style="margin:6px 0;color:#8899b4;">${d.label}${ref}${due}</li>`;
+    })
+    .join('');
+
+  const content = `
+    <p style="color:#8899b4;margin-top:0;">Hello,</p>
+    <p style="color:#8899b4;">The following documents have been requested from <strong style="color:#e8edf5;">${vendorName}</strong> and are still pending:</p>
+    <ul style="padding-left:20px;margin:16px 0;">
+      ${rows}
+    </ul>
+    <p style="color:#8899b4;">Please provide these documents at your earliest convenience to ensure compliance.</p>`;
+
+  await transporter.sendMail({
+    from: config.from,
+    to,
+    subject: `${appName} — Document Request Reminder: ${vendorName}`,
+    html: htmlWrap(content),
+    text: `Document Request Reminder for ${vendorName}\n\nPending documents:\n${documents.map((d) => `- ${d.label}${d.dueDate ? ` (Due: ${new Date(d.dueDate).toLocaleDateString()})` : ''}`).join('\n')}`,
+  });
+}
+
 export async function sendDocumentExpiryAlert(
   to: string,
   name: string,

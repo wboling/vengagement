@@ -3,9 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Building2, FileText, ClipboardList, GitBranch,
+  LayoutDashboard, Building2, ClipboardList, GitBranch,
   BarChart3, Settings, LogOut, X, ChevronRight, Briefcase,
-  Sun, Moon, ChevronDown, ScrollText, Globe, FolderCheck,
+  Sun, Moon, ChevronDown, ScrollText, Globe,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
 import { useTheme } from '@/lib/theme';
@@ -27,9 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',      href: '/dashboard',       icon: LayoutDashboard },
   { label: 'Vendors',        href: '/vendors',          icon: Building2,      feature: 'enableVendors' },
   { label: 'Clients',        href: '/clients',          icon: Briefcase },
-  { label: 'Documents',      href: '/documents',           icon: FileText,    feature: 'enableDocuments' },
-  { label: 'Doc Requests',   href: '/document-requests',   icon: FolderCheck, feature: 'enableDocuments' },
-  { label: 'Questionnaires', href: '/questionnaires',      icon: ClipboardList, feature: 'enableQuestionnaires' },
+  { label: 'Questionnaires', href: '/questionnaires',   icon: ClipboardList, feature: 'enableQuestionnaires' },
   { label: 'Lifecycle',      href: '/lifecycle',        icon: GitBranch,      feature: 'enableLifecycle' },
   { label: 'Reports',        href: '/reports',          icon: BarChart3,      feature: 'enableReports' },
 ];

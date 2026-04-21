@@ -59,6 +59,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const expireDays = settings?.guestLinkExpireDays ?? 30;
   const accessTokenExpiry = new Date(Date.now() + expireDays * 24 * 60 * 60 * 1000);
 
+  // Always store the access token so the vendor portal link is valid when emailed.
+  // allowGuestQuestionnaire controls whether the portal is publicly accessible,
+  // not whether a token is generated.
   const assignment = await prisma.questionnaireAssignment.create({
     data: {
       vendorId,
@@ -68,8 +71,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       dueDate: dueDate ? new Date(dueDate) : null,
       vendorContactName: vendorContactName || null,
       vendorContactEmail: vendorContactEmail || null,
-      accessToken: settings?.allowGuestQuestionnaire ? accessToken : null,
-      accessTokenExpiry: settings?.allowGuestQuestionnaire ? accessTokenExpiry : null,
+      accessToken,
+      accessTokenExpiry,
       cycle: cycle ?? 'annual',
       yearCycle: yearCycle ?? new Date().getFullYear(),
       status: 'pending',
@@ -77,17 +80,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   });
 
   // Send email invite if requested and contact email provided
+  let emailWarning: string | null = null;
   if (sendEmail && vendorContactEmail) {
     const questionnaireName = BUILT_IN_QUESTIONNAIRES.find((q) => q.id === questionnaireId)?.name ?? 'Security Questionnaire';
-    await sendQuestionnaireInvite(
-      vendorContactEmail,
-      vendor.name,
-      questionnaireName,
-      accessToken,
-      dueDate ? new Date(dueDate) : null,
-      session.tenantId
-    ).catch(console.error);
+    try {
+      await sendQuestionnaireInvite(
+        vendorContactEmail,
+        vendor.name,
+        questionnaireName,
+        accessToken,
+        dueDate ? new Date(dueDate) : null,
+        session.tenantId
+      );
+    } catch (err) {
+      console.error('Questionnaire invite email failed:', err);
+      emailWarning = err instanceof Error ? err.message : 'Email failed to send';
+    }
   }
 
-  return NextResponse.json({ success: true, assignment }, { status: 201 });
+  return NextResponse.json({ success: true, assignment, emailWarning }, { status: 201 });
 }

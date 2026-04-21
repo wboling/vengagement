@@ -103,39 +103,51 @@ export default function VendorsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-48">
+      <div className="space-y-2">
+        <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search vendors…"
             style={{ paddingLeft: '32px' }}
-            className="h-9 text-sm"
+            className="h-8 text-sm w-full max-w-sm"
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-9 text-sm w-36"
-        >
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="pending">Pending</option>
-          <option value="offboarding">Offboarding</option>
-        </select>
-        <select
-          value={critFilter}
-          onChange={(e) => setCritFilter(e.target.value)}
-          className="h-9 text-sm w-36"
-        >
-          <option value="">All criticality</option>
-          <option value="critical">Critical</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-[var(--color-text-muted)] mr-1">Status</span>
+            {(['', 'active', 'inactive', 'pending', 'offboarding'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors border ${
+                  statusFilter === s
+                    ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
+                    : 'bg-transparent text-[var(--color-text-muted)] border-[var(--color-border)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-muted)]'
+                }`}
+              >
+                {s || 'All'}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-[var(--color-text-muted)] mr-1">Criticality</span>
+            {(['', 'critical', 'high', 'medium', 'low'] as const).map((c) => (
+              <button
+                key={c}
+                onClick={() => setCritFilter(c)}
+                className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors border ${
+                  critFilter === c
+                    ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
+                    : 'bg-transparent text-[var(--color-text-muted)] border-[var(--color-border)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-muted)]'
+                }`}
+              >
+                {c || 'All'}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Table */}

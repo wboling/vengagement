@@ -4,7 +4,7 @@ import { validateSessionFromRequest, isResponder } from '@/lib/auth/session';
 import { reviewDocument, extractTextFromBuffer } from '@/lib/ai/document-review';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -17,30 +17,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   });
   if (!document) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  // Check tenant has AI enabled
+  // Check tenant AI config or fall back to platform env vars
   const settings = await prisma.tenantSettings.findUnique({ where: { tenantId: session.tenantId } });
-  if (!settings?.aiEnabled) {
+  const hasPlatformAi = !!(process.env.AI_API_KEY && process.env.AI_PROVIDER);
+  if (!settings?.aiEnabled && !hasPlatformAi) {
     return NextResponse.json({ error: 'AI review not configured. Enable it in Settings → AI Configuration.' }, { status: 400 });
   }
 
   let fileText: string;
 
-  // If a buffer was passed directly (from upload flow)
-  const body = await req.json().catch(() => null);
-  if (body?.buffer && body?.mimeType) {
-    const buffer = Buffer.from(body.buffer, 'base64');
-    fileText = await extractTextFromBuffer(buffer, body.mimeType);
-  } else if (document.fileUrl) {
-    // Fetch from Vercel Blob
-    const response = await fetch(document.fileUrl);
-    if (!response.ok) {
-      return NextResponse.json({ error: 'Could not retrieve file for review' }, { status: 400 });
+  try {
+    // If a buffer was passed directly (from upload flow), ignore it and use Blob URL
+    if (document.fileUrl) {
+      const response = await fetch(document.fileUrl);
+      if (!response.ok) throw new Error(`Could not fetch file: ${response.status}`);
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      fileText = await extractTextFromBuffer(buffer, document.mimeType ?? 'application/pdf');
+    } else {
+      // Last-resort: try to use a buffer passed in the body
+      const body = await req.json().catch(() => null);
+      if (body?.buffer && body?.mimeType) {
+        const buffer = Buffer.from(body.buffer, 'base64');
+        fileText = await extractTextFromBuffer(buffer, body.mimeType);
+      } else {
+        await prisma.vendorDocument.update({ where: { id }, data: { aiReviewStatus: 'failed' } });
+        return NextResponse.json({ error: 'No file available for review' }, { status: 400 });
+      }
     }
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    fileText = await extractTextFromBuffer(buffer, document.mimeType ?? 'application/pdf');
-  } else {
-    return NextResponse.json({ error: 'No file available for review' }, { status: 400 });
+  } catch (err) {
+    await prisma.vendorDocument.update({ where: { id }, data: { aiReviewStatus: 'failed' } });
+    return NextResponse.json({ error: `Text extraction failed: ${(err as Error).message}` }, { status: 400 });
   }
 
   const result = await reviewDocument(id, session.tenantId, fileText);

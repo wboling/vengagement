@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
           'content-type': 'application/json',
           cookie: `vg_session=${token}`,
         },
-        body: JSON.stringify({ buffer: buffer.toString('base64'), mimeType: file.type }),
+        body: JSON.stringify({}),
       }).catch(console.error);
     }
   }

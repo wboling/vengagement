@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Building2, FileText, ClipboardList, ShieldCheck, Settings,
   ExternalLink, Edit, Plus, Trash2, AlertCircle, CheckCircle, Download, RefreshCw,
+  FolderCheck, Clock, Calendar, Send,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -14,7 +15,7 @@ import { riskLevelBg, criticalityColor, statusColor, formatDate, formatCurrency,
 import { useToast } from '@/lib/store';
 import { useAuth } from '@/lib/auth/context';
 
-type Tab = 'overview' | 'documents' | 'questionnaires' | 'risk' | 'applications';
+type Tab = 'overview' | 'documents' | 'questionnaires' | 'risk' | 'applications' | 'doc_requests';
 
 interface VendorDetail {
   id: string; name: string; legalName: string | null; website: string | null;
@@ -34,7 +35,12 @@ interface VendorDetail {
     expiresAt: string | null; renewalDate?: string | null;
     fileSize: number | null; uploadedAt: string; fileUrl?: string | null;
   }>;
-  questionnaireAssignments: Array<{ id: string; status: string; dueDate: string | null; questionnaire: { name: string; type: string } }>;
+  questionnaireAssignments: Array<{
+    id: string; status: string; dueDate: string | null;
+    vendorContactEmail: string | null; accessToken: string | null;
+    reminderCount: number; lastReminderSent: string | null;
+    questionnaire: { name: string; type: string };
+  }>;
   riskAssessments: Array<{ id: string; riskScore: number; riskLevel: string; assessedAt: string; status: string; riskContributors?: string }>;
 }
 
@@ -79,6 +85,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
   const TABS: { id: Tab; label: string; count?: number }[] = [
     { id: 'overview',       label: 'Overview' },
     { id: 'documents',      label: 'Documents',      count: vendor.documents.length },
+    { id: 'doc_requests',   label: 'Doc Requests' },
     { id: 'questionnaires', label: 'Questionnaires', count: vendor.questionnaireAssignments.length },
     { id: 'risk',           label: 'Risk' },
     { id: 'applications',   label: 'Applications',   count: vendor.applications.length },
@@ -155,6 +162,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
 
       {tab === 'overview'       && <OverviewTab vendor={vendor} tags={tags} categories={categories} />}
       {tab === 'documents'      && <DocumentsTab vendorId={id} documents={vendor.documents} onRefresh={load} />}
+      {tab === 'doc_requests'   && <DocRequestsTab vendorId={id} />}
       {tab === 'questionnaires' && <QuestionnairesTab vendorId={id} assignments={vendor.questionnaireAssignments} onRefresh={load} />}
       {tab === 'risk'           && <RiskTab assessments={vendor.riskAssessments} vendorId={id} onRefresh={load} />}
       {tab === 'applications'   && <ApplicationsTab applications={vendor.applications} vendorId={id} onRefresh={load} />}
@@ -603,12 +611,22 @@ function QuestionnairesTab({ vendorId, assignments, onRefresh }: { vendorId: str
   const [questionnaires, setQuestionnaires] = useState<Array<{ id: string; name: string; type: string }>>([]);
   const [form, setForm] = useState({ questionnaireId: '', dueDate: '', vendorContactEmail: '', sendEmail: true });
   const [saving, setSaving] = useState(false);
+  const [resending, setResending] = useState<string | null>(null);
 
   useEffect(() => {
     if (assignOpen) {
       fetch('/api/questionnaires').then(r => r.json()).then(d => setQuestionnaires(d.questionnaires ?? []));
     }
   }, [assignOpen]);
+
+  async function handleResend(assignmentId: string) {
+    setResending(assignmentId);
+    const res = await fetch(`/api/questionnaires/assignments/${assignmentId}/resend`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) toast.success('Invitation re-sent');
+    else toast.error(data.error ?? 'Failed to resend');
+    setResending(null);
+  }
 
   async function handleAssign(e: React.FormEvent) {
     e.preventDefault();
@@ -618,8 +636,20 @@ function QuestionnairesTab({ vendorId, assignments, onRefresh }: { vendorId: str
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ vendorId, ...form }),
     });
-    if (res.ok) { toast.success('Questionnaire assigned'); onRefresh(); setAssignOpen(false); }
-    else { toast.error('Failed to assign'); }
+    if (res.ok) {
+      const data = await res.json();
+      if (data.emailWarning) {
+        toast.error(`Assigned, but email failed: ${data.emailWarning}`);
+      } else if (form.sendEmail && form.vendorContactEmail) {
+        toast.success('Questionnaire assigned and invite sent');
+      } else {
+        toast.success('Questionnaire assigned');
+      }
+      onRefresh();
+      setAssignOpen(false);
+    } else {
+      toast.error('Failed to assign');
+    }
     setSaving(false);
   }
 
@@ -634,12 +664,32 @@ function QuestionnairesTab({ vendorId, assignments, onRefresh }: { vendorId: str
         <div className="space-y-2">
           {assignments.map((a) => (
             <Card key={a.id}>
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[var(--color-text-primary)]">{a.questionnaire.name}</p>
-                  <p className="text-xs text-[var(--color-text-muted)]">Due: {a.dueDate ? formatDate(a.dueDate) : 'No deadline'}</p>
+                  <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                    <span className="text-xs text-[var(--color-text-muted)]">Due: {a.dueDate ? formatDate(a.dueDate) : 'No deadline'}</span>
+                    {a.vendorContactEmail && (
+                      <span className="text-xs text-[var(--color-text-muted)]">{a.vendorContactEmail}</span>
+                    )}
+                    {a.lastReminderSent && (
+                      <span className="text-xs text-[var(--color-text-muted)]">Last sent: {formatDate(a.lastReminderSent)}</span>
+                    )}
+                  </div>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor(a.status)}`}>{a.status.replace(/_/g, ' ')}</span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor(a.status)}`}>{a.status.replace(/_/g, ' ')}</span>
+                  {a.vendorContactEmail && a.accessToken && (
+                    <button
+                      onClick={() => handleResend(a.id)}
+                      disabled={resending === a.id}
+                      title="Resend invitation email"
+                      className="p-1.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-subtle)] transition-colors disabled:opacity-40"
+                    >
+                      {resending === a.id ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
+                    </button>
+                  )}
+                </div>
               </div>
             </Card>
           ))}
@@ -793,6 +843,240 @@ function ApplicationsTab({ applications, vendorId, onRefresh }: { applications: 
               </div>
             ))}
           </div>
+        </form>
+      </Modal>
+    </div>
+  );
+}
+
+interface DocRequest {
+  id: string;
+  documentType: string;
+  label: string;
+  description: string | null;
+  nistRef: string | null;
+  status: string;
+  dueDate: string | null;
+  notes: string | null;
+  requestedAt: string;
+}
+
+const DOC_REQUEST_STATUS_COLORS: Record<string, string> = {
+  pending:    'text-amber-400 bg-amber-400/10 border-amber-400/20',
+  received:   'text-emerald-400 bg-emerald-400/10 border-emerald-400/20',
+  overdue:    'text-rose-400 bg-rose-400/10 border-rose-400/20',
+  waived:     'text-[var(--color-text-muted)] bg-[var(--color-bg-elevated)] border-[var(--color-border)]',
+};
+
+const REQUEST_TYPES = [
+  'SOC2Report', 'ISO27001Cert', 'PenTestReport', 'BAA', 'DPA', 'NDA', 'MSA', 'SLA',
+  'Contract', 'TrustCenterReport', 'InternalPolicy', 'Other',
+];
+
+function DocRequestsTab({ vendorId }: { vendorId: string }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const canManage = user?.role === 'admin' || user?.role === 'company_admin';
+  const [requests, setRequests] = useState<DocRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [resending, setResending] = useState<string | null>(null);
+  const [newRequests, setNewRequests] = useState<{ documentType: string; dueDate: string }[]>([
+    { documentType: 'SOC2Report', dueDate: '' },
+  ]);
+
+  async function load() {
+    setLoading(true);
+    const res = await fetch(`/api/document-requests?vendorId=${vendorId}`);
+    if (res.ok) {
+      const data = await res.json();
+      setRequests(data.requests ?? []);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [vendorId]);
+
+  async function handleStatusChange(id: string, status: string) {
+    const res = await fetch(`/api/document-requests/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (res.ok) { toast.success('Status updated'); load(); }
+    else toast.error('Failed to update status');
+  }
+
+  async function handleDelete(id: string) {
+    const res = await fetch(`/api/document-requests/${id}`, { method: 'DELETE' });
+    if (res.ok) { toast.success('Request removed'); load(); }
+    else toast.error('Failed to delete');
+  }
+
+  async function handleResend(id: string) {
+    setResending(id);
+    const res = await fetch(`/api/document-requests/${id}/resend`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) toast.success(`Reminder sent to ${data.to}`);
+    else toast.error(data.error ?? 'Failed to send reminder');
+    setResending(null);
+  }
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    const valid = newRequests.filter((r) => r.documentType);
+    if (!valid.length) return;
+    setSaving(true);
+    const res = await fetch('/api/document-requests', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ vendorId, requests: valid }),
+    });
+    if (res.ok) {
+      toast.success(`${valid.length} request${valid.length > 1 ? 's' : ''} created`);
+      setAddOpen(false);
+      setNewRequests([{ documentType: 'SOC2Report', dueDate: '' }]);
+      load();
+    } else {
+      toast.error('Failed to create requests');
+    }
+    setSaving(false);
+  }
+
+  if (loading) return <div className="skeleton h-32 rounded-xl" />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        {canManage && (
+          <Button size="sm" icon={Plus} onClick={() => setAddOpen(true)}>Request Documents</Button>
+        )}
+      </div>
+
+      {requests.length === 0 ? (
+        <Card>
+          <div className="text-center py-8">
+            <FolderCheck size={28} className="mx-auto text-[var(--color-text-muted)] mb-2 opacity-40" />
+            <p className="text-sm text-[var(--color-text-muted)]">No document requests yet.</p>
+          </div>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {requests.map((r) => (
+            <Card key={r.id} className="py-3 px-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-[var(--color-text-primary)]">{r.label}</p>
+                    {r.nistRef && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-bg-elevated)] border border-[var(--color-border)] text-[var(--color-text-muted)]">
+                        {r.nistRef}
+                      </span>
+                    )}
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${DOC_REQUEST_STATUS_COLORS[r.status] ?? DOC_REQUEST_STATUS_COLORS.pending}`}>
+                      {r.status}
+                    </span>
+                  </div>
+                  {r.description && (
+                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5 line-clamp-2">{r.description}</p>
+                  )}
+                  {r.dueDate && (
+                    <div className="flex items-center gap-1 mt-1">
+                      <Calendar size={10} className="text-[var(--color-text-muted)]" />
+                      <span className="text-xs text-[var(--color-text-muted)]">Due {formatDate(r.dueDate)}</span>
+                    </div>
+                  )}
+                </div>
+                {canManage && (
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {r.status === 'pending' || r.status === 'overdue' ? (
+                      <button
+                        onClick={() => handleResend(r.id)}
+                        disabled={resending === r.id}
+                        className="p-1.5 rounded text-xs text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-subtle)] transition-colors disabled:opacity-40"
+                        title="Send reminder to vendor"
+                      >
+                        {resending === r.id ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
+                      </button>
+                    ) : null}
+                    {r.status !== 'received' && (
+                      <button
+                        onClick={() => handleStatusChange(r.id, 'received')}
+                        className="p-1.5 rounded text-xs text-emerald-400 hover:bg-emerald-400/10 transition-colors"
+                        title="Mark received"
+                      >
+                        <CheckCircle size={13} />
+                      </button>
+                    )}
+                    {r.status !== 'waived' && (
+                      <button
+                        onClick={() => handleStatusChange(r.id, 'waived')}
+                        className="p-1.5 rounded text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] transition-colors"
+                        title="Waive request"
+                      >
+                        <Clock size={13} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(r.id)}
+                      className="p-1.5 rounded text-xs text-[var(--color-text-muted)] hover:text-rose-400 hover:bg-rose-400/10 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Request Documents"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button loading={saving} onClick={handleAdd}>Create Requests</Button>
+          </>
+        }
+      >
+        <form onSubmit={handleAdd} className="space-y-3">
+          {newRequests.map((req, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <select
+                value={req.documentType}
+                onChange={(e) => setNewRequests(newRequests.map((r, j) => j === i ? { ...r, documentType: e.target.value } : r))}
+                className="flex-1 text-sm"
+              >
+                {REQUEST_TYPES.map((t) => <option key={t} value={t}>{DOC_TYPE_LABELS[t] ?? t}</option>)}
+              </select>
+              <input
+                type="date"
+                value={req.dueDate}
+                onChange={(e) => setNewRequests(newRequests.map((r, j) => j === i ? { ...r, dueDate: e.target.value } : r))}
+                className="w-36 text-sm"
+                placeholder="Due date"
+              />
+              {newRequests.length > 1 && (
+                <button type="button" onClick={() => setNewRequests(newRequests.filter((_, j) => j !== i))}
+                  className="p-1 text-[var(--color-text-muted)] hover:text-rose-400">
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => setNewRequests([...newRequests, { documentType: 'SOC2Report', dueDate: '' }])}
+            className="text-xs text-[var(--color-accent)] hover:underline flex items-center gap-1"
+          >
+            <Plus size={11} /> Add another
+          </button>
         </form>
       </Modal>
     </div>
