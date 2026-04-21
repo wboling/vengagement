@@ -316,7 +316,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                       </div>
                     </div>
                     {doc.fileUrl && (
-                      <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                      <a href={`/api/documents/${doc.id}/download`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
                         className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-accent)] flex-shrink-0">
                         <Download size={13} />
                       </a>

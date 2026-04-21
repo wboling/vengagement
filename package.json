@@ -18,7 +18,7 @@
     "@prisma/adapter-neon": "^6.9.0",
     "@prisma/client": "^6.9.0",
     "@types/pdfkit": "^0.17.6",
-    "@vercel/blob": "^0.27.0",
+    "@vercel/blob": "^2.3.3",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "docx": "^9.6.1",

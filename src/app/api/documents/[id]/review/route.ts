@@ -34,8 +34,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // Text was extracted at upload time and passed directly — use it
       fileText = body.extractedText;
     } else if (document.fileUrl) {
-      // Fall back to fetching from Vercel Blob
-      const response = await fetch(document.fileUrl);
+      // Fall back to fetching from Vercel Blob (private store requires auth header)
+      const privateToken = process.env.BLOB_PRIVATE_READ_WRITE_TOKEN;
+      const response = await fetch(document.fileUrl, {
+        headers: privateToken ? { Authorization: `Bearer ${privateToken}` } : {},
+      });
       if (!response.ok) throw new Error(`Could not fetch file: ${response.status}`);
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);

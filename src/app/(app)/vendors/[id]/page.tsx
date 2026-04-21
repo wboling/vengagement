@@ -350,7 +350,7 @@ function DocumentsTab({
                   </div>
                 </div>
                 {d.fileUrl && (
-                  <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                  <a href={`/api/documents/${d.id}/download`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
                     className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-accent)] flex-shrink-0">
                     <Download size={13} />
                   </a>

@@ -29,7 +29,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   const fileCheck = validateDocumentFile(file);
   if (!fileCheck.ok) return NextResponse.json({ error: fileCheck.error }, { status: 400 });
 
-  const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+  const BLOB_TOKEN = process.env.BLOB_PRIVATE_READ_WRITE_TOKEN;
   let fileUrl: string | null = null;
   let fileKey: string | null = null;
 
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     const ext = file.name.split('.').pop() ?? 'bin';
     const filename = `vendor-docs/${assignment.vendorId}-${Date.now()}.${ext}`;
     const bytes = await file.arrayBuffer();
-    const blob = await put(filename, bytes, { access: 'public', token: BLOB_TOKEN });
+    const blob = await put(filename, bytes, { access: 'private', token: BLOB_TOKEN });
     fileUrl = blob.url;
     fileKey = blob.pathname;
   }

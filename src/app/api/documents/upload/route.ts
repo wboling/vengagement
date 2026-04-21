@@ -51,11 +51,11 @@ export async function POST(req: NextRequest) {
   let fileUrl: string | null = null;
   let fileKey: string | null = storageKey;
 
-  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  const blobToken = process.env.BLOB_PRIVATE_READ_WRITE_TOKEN;
   if (blobToken) {
     try {
       const blob = await put(storageKey, buffer, {
-        access: 'public',
+        access: 'private',
         contentType: file.type,
         token: blobToken,
       });

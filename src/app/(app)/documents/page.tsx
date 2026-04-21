@@ -200,7 +200,7 @@ export default function DocumentsPage() {
 
                 {doc.fileUrl && (
                   <a
-                    href={doc.fileUrl}
+                    href={`/api/documents/${doc.id}/download`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors flex-shrink-0 mt-0.5"

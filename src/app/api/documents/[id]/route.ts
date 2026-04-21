@@ -18,7 +18,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!document) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   if (document.fileUrl) {
-    const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+    const blobToken = process.env.BLOB_PRIVATE_READ_WRITE_TOKEN;
     if (blobToken) {
       try {
         await del(document.fileUrl, { token: blobToken });
