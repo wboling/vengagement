@@ -10,6 +10,8 @@ interface BrandingConfig {
   successColor?: string;
   warningColor?: string;
   dangerColor?: string;
+  navHoverBg?: string;
+  navActiveBg?: string;
   logoUrl?: string;
 }
 
@@ -84,6 +86,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (branding.dangerColor) {
       document.documentElement.style.setProperty('--color-danger', branding.dangerColor);
       document.documentElement.style.setProperty('--color-danger-subtle', hexToRgba(branding.dangerColor, 0.1));
+    }
+    if (branding.navHoverBg) {
+      document.documentElement.style.setProperty('--color-bg-hover', branding.navHoverBg);
+    }
+    if (branding.navActiveBg) {
+      document.documentElement.style.setProperty('--color-accent-subtle', branding.navActiveBg);
     }
   }, [accentColor, branding, mounted]);
 

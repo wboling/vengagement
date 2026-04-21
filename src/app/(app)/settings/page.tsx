@@ -78,7 +78,8 @@ export default function SettingsPage() {
 
   let branding: {
     primaryColor?: string; secondaryColor?: string; successColor?: string;
-    warningColor?: string; dangerColor?: string; logoUrl?: string;
+    warningColor?: string; dangerColor?: string; navHoverBg?: string;
+    navActiveBg?: string; logoUrl?: string;
   } = {};
   try { branding = JSON.parse(settings.branding || '{}'); } catch {}
 
@@ -308,11 +309,13 @@ export default function SettingsPage() {
             <div className="space-y-5">
               {/* Color pickers */}
               {([
-                { key: 'primaryColor',   label: 'Primary / Accent',   cssVar: '--color-accent',   defaultVal: '#4f46e5', hint: 'Used for buttons, active nav, links' },
-                { key: 'secondaryColor', label: 'Secondary / Teal',   cssVar: '--color-teal',     defaultVal: '#0d9488', hint: 'Used for client cards and highlights' },
-                { key: 'successColor',   label: 'Success',            cssVar: '--color-success',  defaultVal: '#10b981', hint: 'Used for active/approved/received states' },
-                { key: 'warningColor',   label: 'Warning',            cssVar: '--color-warning',  defaultVal: '#f59e0b', hint: 'Used for pending and review states' },
-                { key: 'dangerColor',    label: 'Danger / Error',     cssVar: '--color-danger',   defaultVal: '#f43f5e', hint: 'Used for overdue, critical, error states' },
+                { key: 'primaryColor',   label: 'Primary / Accent',        cssVar: '--color-accent',       defaultVal: '#4f46e5', hint: 'Buttons, active nav text, links' },
+                { key: 'navActiveBg',    label: 'Active Nav Background',    cssVar: '--color-accent-subtle', defaultVal: '#1a1f3a', hint: 'Background of the currently selected nav item' },
+                { key: 'navHoverBg',     label: 'Nav Hover Background',     cssVar: '--color-bg-hover',      defaultVal: '#1e2840', hint: 'Background when hovering over nav items and table rows' },
+                { key: 'secondaryColor', label: 'Secondary / Teal',         cssVar: '--color-teal',          defaultVal: '#0d9488', hint: 'Client cards and secondary highlights' },
+                { key: 'successColor',   label: 'Success',                  cssVar: '--color-success',       defaultVal: '#10b981', hint: 'Active, approved, received states' },
+                { key: 'warningColor',   label: 'Warning',                  cssVar: '--color-warning',       defaultVal: '#f59e0b', hint: 'Pending and review states' },
+                { key: 'dangerColor',    label: 'Danger / Error',           cssVar: '--color-danger',        defaultVal: '#f43f5e', hint: 'Overdue, critical, error states' },
               ] as const).map(({ key, label, cssVar, defaultVal, hint }) => {
                 const val = branding[key as keyof typeof branding] as string ?? defaultVal;
                 return (
