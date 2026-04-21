@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
 import { prisma } from '@/lib/db/prisma';
 import { SESSION_COOKIE, validateSessionToken, isCompanyAdmin } from '@/lib/auth/session';
+import { validateImageFile } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,10 +19,8 @@ export async function POST(req: NextRequest) {
   const file = formData.get('file') as File | null;
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
 
-  const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/webp'];
-  if (!allowed.includes(file.type)) {
-    return NextResponse.json({ error: 'Only PNG, JPG, SVG, or WEBP files are accepted' }, { status: 400 });
-  }
+  const imageCheck = validateImageFile(file);
+  if (!imageCheck.ok) return NextResponse.json({ error: imageCheck.error }, { status: 400 });
 
   const ext = file.name.split('.').pop() ?? 'png';
   const filename = `logos/${session.tenantId}-${Date.now()}.${ext}`;

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { CheckCircle, AlertCircle, Upload, FolderCheck, Clock, MessageSquare } from 'lucide-react';
+import { CheckCircle, AlertCircle, Upload, FolderCheck, Clock, MessageSquare, Paperclip } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 interface Question {
@@ -27,23 +27,36 @@ interface Assignment {
   documentRequests: DocRequest[];
 }
 
+interface Branding {
+  primaryColor: string | null;
+  logoUrl: string | null;
+}
+
 const YES_NO_NA = ['Yes', 'No', 'N/A'] as const;
+const ACCEPTED_DOC_TYPES = '.pdf,.doc,.docx,.xlsx,.xls,.txt,.csv';
 
 export default function GuestQuestionnairePage() {
   const { token } = useParams<{ token: string }>();
   const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const [branding, setBranding] = useState<Branding>({ primaryColor: null, logoUrl: null });
   const [responses, setResponses] = useState<Record<string, string>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
+  // evidence: qId → uploaded file name
+  const [evidence, setEvidence] = useState<Record<string, string>>({});
+  const [uploadingEvidence, setUploadingEvidence] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
   const [uploadedDocs, setUploadedDocs] = useState<Record<string, string>>({});
-  const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const docFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const evidenceRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => { load(); }, [token]);
+
+  const accent = branding.primaryColor ?? '#4f46e5';
 
   async function load() {
     const res = await fetch(`/api/q/${token}`);
@@ -53,6 +66,7 @@ export default function GuestQuestionnairePage() {
     } else {
       const data = await res.json();
       setAssignment({ ...data.assignment, documentRequests: data.assignment.documentRequests ?? [] });
+      if (data.branding) setBranding(data.branding);
       const prefilled: Record<string, string> = {};
       const prefilledComments: Record<string, string> = {};
       Object.entries(data.assignment.responses ?? {}).forEach(([k, v]) => {
@@ -66,8 +80,8 @@ export default function GuestQuestionnairePage() {
     setLoading(false);
   }
 
-  async function uploadFile(requestId: string, docType: string, label: string) {
-    const input = fileRefs.current[requestId];
+  async function uploadDocRequest(requestId: string, docType: string, label: string) {
+    const input = docFileRefs.current[requestId];
     if (!input?.files?.[0]) return;
     setUploadingDoc(requestId);
     const fd = new FormData();
@@ -87,6 +101,24 @@ export default function GuestQuestionnairePage() {
       alert(d.error ?? 'Upload failed. Please try again.');
     }
     setUploadingDoc(null);
+  }
+
+  async function uploadEvidence(qId: string, questionText: string) {
+    const input = evidenceRefs.current[qId];
+    if (!input?.files?.[0]) return;
+    setUploadingEvidence(qId);
+    const fd = new FormData();
+    fd.append('file', input.files[0]);
+    fd.append('documentType', 'Other');
+    fd.append('name', `Evidence: ${questionText.slice(0, 100)}`);
+    const res = await fetch(`/api/q/${token}/upload`, { method: 'POST', body: fd });
+    if (res.ok) {
+      setEvidence((prev) => ({ ...prev, [qId]: input.files![0].name }));
+    } else {
+      const d = await res.json().catch(() => ({}));
+      alert(d.error ?? 'Upload failed. Only PDF, Word, Excel, and plain text files are accepted (max 50 MB).');
+    }
+    setUploadingEvidence(null);
   }
 
   async function submit(e: React.FormEvent) {
@@ -146,7 +178,7 @@ export default function GuestQuestionnairePage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: accent, borderTopColor: 'transparent' }} />
       </div>
     );
   }
@@ -167,7 +199,7 @@ export default function GuestQuestionnairePage() {
     return (
       <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center space-y-4">
-          <CheckCircle size={40} className="mx-auto text-emerald-400" />
+          <CheckCircle size={40} className="mx-auto" style={{ color: accent }} />
           <h1 className="text-xl font-semibold text-white">Questionnaire Submitted</h1>
           <p className="text-[#8b9bb4]">Thank you. Your responses have been received and will be reviewed by the security team.</p>
         </div>
@@ -182,6 +214,11 @@ export default function GuestQuestionnairePage() {
       {/* Header */}
       <div className="border-b border-[#1e2a3a] bg-[#0f1525] px-6 py-5">
         <div className="max-w-3xl mx-auto">
+          {branding.logoUrl && (
+            <div className="mb-4">
+              <img src={branding.logoUrl} alt="Logo" className="h-8 max-w-[160px] object-contain" />
+            </div>
+          )}
           <p className="text-xs text-[#8b9bb4] mb-1">Vendor Security Questionnaire</p>
           <h1 className="text-xl font-semibold">{assignment.questionnaireName}</h1>
           <p className="text-sm text-[#8b9bb4] mt-1">
@@ -211,11 +248,12 @@ export default function GuestQuestionnairePage() {
               {section.questions.map((q, qi) => {
                 const hasComment = !!comments[q.id]?.trim();
                 const commentOpen = expandedComments[q.id] || hasComment;
+                const hasEvidence = !!evidence[q.id];
 
                 return (
                   <div key={q.id} className="bg-[#131929] border border-[#1e2a3a] rounded-xl overflow-hidden">
                     <div className="p-4">
-                      <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="flex items-start gap-3 mb-3">
                         <label className="text-sm font-medium text-white leading-snug">
                           <span className="text-[#4a5a72] mr-1.5">{qi + 1}.</span>
                           {q.text}
@@ -227,9 +265,9 @@ export default function GuestQuestionnairePage() {
                         <p className="text-xs text-[#8b9bb4] mb-3 ml-5">{q.helpText}</p>
                       )}
 
-                      {/* yes-no-na (primary type for SIG questionnaires) */}
+                      {/* yes-no-na */}
                       {(q.type === 'yes-no-na' || q.type === 'boolean') && (
-                        <div className="flex gap-2 ml-5">
+                        <div className="flex gap-2 ml-5 flex-wrap">
                           {(q.type === 'yes-no-na' ? YES_NO_NA : ['Yes', 'No']).map((opt) => {
                             const selected = responses[q.id] === opt;
                             return (
@@ -237,6 +275,7 @@ export default function GuestQuestionnairePage() {
                                 key={opt}
                                 type="button"
                                 onClick={() => setResponse(q.id, selected ? '' : opt)}
+                                style={selected ? { borderColor: opt === 'Yes' ? '#10b981' : opt === 'No' ? '#f43f5e' : accent, color: opt === 'Yes' ? '#6ee7b7' : opt === 'No' ? '#fca5a5' : '#cbd5e1' } : {}}
                                 className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-all ${
                                   selected
                                     ? opt === 'Yes'
@@ -256,25 +295,28 @@ export default function GuestQuestionnairePage() {
 
                       {q.type === 'text' && (
                         <input
-                          className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#4a5568] outline-none focus:border-indigo-500"
+                          className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#4a5568] outline-none"
+                          style={{ '--tw-ring-color': accent } as React.CSSProperties}
                           value={responses[q.id] ?? ''}
                           onChange={(e) => setResponse(q.id, e.target.value)}
                           required={q.required}
+                          maxLength={2000}
                         />
                       )}
 
                       {q.type === 'textarea' && (
                         <textarea
-                          className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#4a5568] outline-none focus:border-indigo-500 min-h-[80px] resize-y"
+                          className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white placeholder-[#4a5568] outline-none min-h-[80px] resize-y"
                           value={responses[q.id] ?? ''}
                           onChange={(e) => setResponse(q.id, e.target.value)}
                           required={q.required}
+                          maxLength={5000}
                         />
                       )}
 
                       {q.type === 'select' && (
                         <select
-                          className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                          className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none"
                           value={responses[q.id] ?? ''}
                           onChange={(e) => setResponse(q.id, e.target.value)}
                           required={q.required}
@@ -294,8 +336,8 @@ export default function GuestQuestionnairePage() {
                                   type="checkbox"
                                   checked={selected}
                                   onChange={() => toggleMulti(q.id, opt)}
-                                  className="accent-indigo-500"
-                                  style={{ width: 'auto' }}
+                                  style={{ accentColor: accent }}
+                                  className="w-auto"
                                 />
                                 <span className="text-sm text-white">{opt}</span>
                               </label>
@@ -307,7 +349,7 @@ export default function GuestQuestionnairePage() {
                       {q.type === 'date' && (
                         <input
                           type="date"
-                          className="bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                          className="bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none"
                           value={responses[q.id] ?? ''}
                           onChange={(e) => setResponse(q.id, e.target.value)}
                           required={q.required}
@@ -317,7 +359,7 @@ export default function GuestQuestionnairePage() {
                       {q.type === 'number' && (
                         <input
                           type="number"
-                          className="bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500 w-40"
+                          className="bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-sm text-white outline-none w-40"
                           value={responses[q.id] ?? ''}
                           onChange={(e) => setResponse(q.id, e.target.value)}
                           required={q.required}
@@ -326,12 +368,12 @@ export default function GuestQuestionnairePage() {
 
                       {q.type === 'file' && (
                         <div className="space-y-2 ml-5">
-                          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1e2a3a] hover:border-indigo-500/40 text-xs text-[#8b9bb4] transition-colors w-fit">
+                          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1e2a3a] hover:border-[#3a4a6a] text-xs text-[#8b9bb4] transition-colors w-fit">
                             <Upload size={11} />
                             {responses[q.id] ? `Uploaded: ${responses[q.id]}` : 'Choose file'}
                             <input
                               type="file"
-                              accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
+                              accept={ACCEPTED_DOC_TYPES}
                               className="hidden"
                               onChange={async (e) => {
                                 const file = e.target.files?.[0];
@@ -342,6 +384,7 @@ export default function GuestQuestionnairePage() {
                                 fd.append('name', file.name);
                                 const res = await fetch(`/api/q/${token}/upload`, { method: 'POST', body: fd });
                                 if (res.ok) setResponse(q.id, file.name);
+                                else alert((await res.json().catch(() => ({}))).error ?? 'Upload failed.');
                               }}
                             />
                           </label>
@@ -352,8 +395,9 @@ export default function GuestQuestionnairePage() {
                       )}
                     </div>
 
-                    {/* Notes / comments toggle */}
-                    <div className="border-t border-[#1e2a3a]">
+                    {/* Notes + evidence footer */}
+                    <div className="border-t border-[#1e2a3a] divide-y divide-[#1e2a3a]">
+                      {/* Comments */}
                       {!commentOpen ? (
                         <button
                           type="button"
@@ -369,9 +413,34 @@ export default function GuestQuestionnairePage() {
                             placeholder="Notes or comments (optional)…"
                             value={comments[q.id] ?? ''}
                             onChange={(e) => setComment(q.id, e.target.value)}
-                            className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#4a5568] outline-none focus:border-indigo-500/50 min-h-[56px] resize-y"
+                            className="w-full bg-[#0f1525] border border-[#1e2a3a] rounded-lg px-3 py-2 text-xs text-white placeholder-[#4a5568] outline-none min-h-[56px] resize-y"
+                            maxLength={5000}
                           />
                         </div>
+                      )}
+
+                      {/* Evidence upload */}
+                      {hasEvidence ? (
+                        <div className="flex items-center gap-2 px-4 py-2">
+                          <Paperclip size={11} className="text-emerald-400" />
+                          <span className="text-xs text-emerald-400">Evidence attached: {evidence[q.id]}</span>
+                        </div>
+                      ) : (
+                        <label className="flex items-center gap-1.5 px-4 py-2 text-xs text-[#4a5a72] hover:text-[#8b9bb4] transition-colors w-full">
+                          {uploadingEvidence === q.id ? (
+                            <><Paperclip size={11} className="animate-pulse" /> Uploading…</>
+                          ) : (
+                            <><Paperclip size={11} /> Attach supporting document</>
+                          )}
+                          <input
+                            type="file"
+                            accept={ACCEPTED_DOC_TYPES}
+                            className="hidden"
+                            disabled={uploadingEvidence === q.id}
+                            ref={(el) => { evidenceRefs.current[q.id] = el; }}
+                            onChange={() => uploadEvidence(q.id, q.text)}
+                          />
+                        </label>
                       )}
                     </div>
                   </div>
@@ -386,11 +455,11 @@ export default function GuestQuestionnairePage() {
           <div className="border-t border-[#1e2a3a] pt-8">
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-1">
-                <FolderCheck size={16} className="text-indigo-400" />
+                <FolderCheck size={16} style={{ color: accent }} />
                 <h2 className="text-base font-semibold text-white">Requested Documents</h2>
               </div>
               <p className="text-sm text-[#8b9bb4]">
-                Please upload the following documents as part of your due diligence submission.
+                Please upload the following documents as part of your due diligence submission. Accepted formats: PDF, Word (.docx), Excel, plain text (max 50 MB each).
               </p>
             </div>
 
@@ -423,19 +492,19 @@ export default function GuestQuestionnairePage() {
 
                       {!isReceived && (
                         <label className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex-shrink-0 ${
-                          isUploading
-                            ? 'border-[#1e2a3a] text-[#4a5568] opacity-60'
-                            : 'border-indigo-500/40 text-indigo-400 hover:bg-indigo-500/10'
-                        }`}>
+                          isUploading ? 'border-[#1e2a3a] text-[#4a5568] opacity-60' : 'border-[#3a4a6a] text-[#8b9bb4] hover:text-white'
+                        }`}
+                          style={isUploading ? {} : { borderColor: `${accent}40`, color: accent }}
+                        >
                           <Upload size={11} />
                           {isUploading ? 'Uploading…' : 'Upload'}
                           <input
                             type="file"
-                            accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
+                            accept={ACCEPTED_DOC_TYPES}
                             className="hidden"
                             disabled={isUploading}
-                            ref={(el) => { fileRefs.current[req.id] = el; }}
-                            onChange={() => uploadFile(req.id, req.documentType, req.label ?? req.documentType)}
+                            ref={(el) => { docFileRefs.current[req.id] = el; }}
+                            onChange={() => uploadDocRequest(req.id, req.documentType, req.label ?? req.documentType)}
                           />
                         </label>
                       )}
@@ -451,7 +520,8 @@ export default function GuestQuestionnairePage() {
           <button
             type="submit"
             disabled={submitting}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-6 py-2.5 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+            style={{ backgroundColor: accent }}
           >
             {submitting ? 'Submitting…' : 'Submit Questionnaire'}
           </button>

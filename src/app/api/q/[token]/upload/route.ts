@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
 import { prisma } from '@/lib/db/prisma';
+import { validateDocumentFile } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   const docName = (formData.get('name') as string) || file?.name || 'Document';
 
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
-  if (file.size > 25 * 1024 * 1024) return NextResponse.json({ error: 'File size must be under 25 MB' }, { status: 413 });
+
+  const fileCheck = validateDocumentFile(file);
+  if (!fileCheck.ok) return NextResponse.json({ error: fileCheck.error }, { status: 400 });
 
   const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
   let fileUrl: string | null = null;

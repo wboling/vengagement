@@ -3,6 +3,7 @@ import { put } from '@vercel/blob';
 import { prisma } from '@/lib/db/prisma';
 import { SESSION_COOKIE, validateSessionToken, isResponder } from '@/lib/auth/session';
 import { logAudit } from '@/lib/audit';
+import { validateDocumentFile, str } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,9 @@ export async function POST(req: NextRequest) {
 
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
 
+  const fileCheck = validateDocumentFile(file);
+  if (!fileCheck.ok) return NextResponse.json({ error: fileCheck.error }, { status: 400 });
+
   if (vendorId) {
     const vendor = await prisma.vendor.findFirst({ where: { id: vendorId, tenantId: session.tenantId } });
     if (!vendor) return NextResponse.json({ error: 'Vendor not found' }, { status: 404 });
@@ -36,9 +40,12 @@ export async function POST(req: NextRequest) {
     if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
   }
 
+  const safeName = str(name, 'Document name', { max: 255 }) ?? file.name.slice(0, 255);
+  const safeDesc = str(description, 'Description', { max: 2000 });
+
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
-  const storageKey = `${session.tenantId}/${vendorId ?? clientId ?? 'general'}/${Date.now()}-${file.name}`;
+  const storageKey = `${session.tenantId}/${vendorId ?? clientId ?? 'general'}/${Date.now()}-${file.name.slice(0, 100)}`;
 
   let fileUrl: string | null = null;
   let fileKey: string | null = storageKey;
@@ -66,8 +73,8 @@ export async function POST(req: NextRequest) {
       clientId: clientId ?? null,
       tenantId: session.tenantId,
       documentType,
-      name,
-      description: description || null,
+      name: safeName,
+      description: safeDesc,
       fileKey,
       fileUrl,
       fileName: file.name,

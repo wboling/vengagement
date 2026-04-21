@@ -40,6 +40,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
     select: { id: true, documentType: true, label: true, description: true, nistRef: true, status: true, dueDate: true },
   });
 
+  // Fetch tenant branding for portal theming
+  const tenantSettings = await prisma.tenantSettings.findUnique({
+    where: { tenantId: assignment.tenantId },
+    select: { branding: true },
+  });
+  let branding: Record<string, string> = {};
+  try { branding = JSON.parse(tenantSettings?.branding ?? '{}'); } catch {}
+
   return NextResponse.json({
     assignment: {
       id: assignment.id,
@@ -51,6 +59,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
       sections,
       responses: parseJsonSafe(assignment.responses, {}),
       documentRequests,
+    },
+    branding: {
+      primaryColor: branding.primaryColor ?? null,
+      logoUrl: branding.logoUrl ?? null,
     },
   });
 }

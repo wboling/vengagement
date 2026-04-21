@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { SESSION_COOKIE, validateSessionToken, isAdmin, isResponder } from '@/lib/auth/session';
 import { calculateVendorRiskScore } from '@/lib/risk-calculator';
 import { parseJsonSafe } from '@/lib/utils';
+import { str, email, url, ValidationError } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,36 +44,42 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const body = await req.json();
 
-  const vendor = await prisma.vendor.update({
-    where: { id },
-    data: {
-      name:                body.name                ?? undefined,
-      legalName:           body.legalName           !== undefined ? (body.legalName || null) : undefined,
-      website:             body.website             !== undefined ? (body.website || null) : undefined,
-      description:         body.description         !== undefined ? (body.description || null) : undefined,
-      category:            body.category            !== undefined ? (body.category || null) : undefined,
-      criticality:         body.criticality         ?? undefined,
-      status:              body.status              ?? undefined,
-      isExempt:            body.isExempt            !== undefined ? body.isExempt : undefined,
-      exemptReason:        body.exemptReason        !== undefined ? (body.exemptReason || null) : undefined,
-      trustCenterUrl:      body.trustCenterUrl      !== undefined ? (body.trustCenterUrl || null) : undefined,
-      primaryContactName:  body.primaryContactName  !== undefined ? (body.primaryContactName || null) : undefined,
-      primaryContactEmail: body.primaryContactEmail !== undefined ? (body.primaryContactEmail || null) : undefined,
-      primaryContactPhone: body.primaryContactPhone !== undefined ? (body.primaryContactPhone || null) : undefined,
-      processesPII:        body.processesPII        !== undefined ? body.processesPII : undefined,
-      processesPHI:        body.processesPHI        !== undefined ? body.processesPHI : undefined,
-      processesFinancial:  body.processesFinancial  !== undefined ? body.processesFinancial : undefined,
-      dataRetentionDays:   body.dataRetentionDays   !== undefined ? (body.dataRetentionDays || null) : undefined,
-      dataLocation:        body.dataLocation        !== undefined ? (body.dataLocation || null) : undefined,
-      contractStartDate:   body.contractStartDate   !== undefined ? (body.contractStartDate ? new Date(body.contractStartDate) : null) : undefined,
-      contractEndDate:     body.contractEndDate     !== undefined ? (body.contractEndDate ? new Date(body.contractEndDate) : null) : undefined,
-      contractValue:       body.contractValue       !== undefined ? (body.contractValue || null) : undefined,
-      lastReviewDate:      body.lastReviewDate      !== undefined ? (body.lastReviewDate ? new Date(body.lastReviewDate) : null) : undefined,
-      nextReviewDate:      body.nextReviewDate      !== undefined ? (body.nextReviewDate ? new Date(body.nextReviewDate) : null) : undefined,
-      tags:                body.tags                !== undefined ? JSON.stringify(body.tags) : undefined,
-      notes:               body.notes               !== undefined ? (body.notes || null) : undefined,
-    },
-  });
+  let vendor;
+  try {
+    vendor = await prisma.vendor.update({
+      where: { id },
+      data: {
+        name:                body.name                !== undefined ? str(body.name, 'Vendor name', { required: true, max: 255 })! : undefined,
+        legalName:           body.legalName           !== undefined ? str(body.legalName, 'Legal name', { max: 255 }) : undefined,
+        website:             body.website             !== undefined ? url(body.website, 'Website') : undefined,
+        description:         body.description         !== undefined ? str(body.description, 'Description', { max: 2000 }) : undefined,
+        category:            body.category            !== undefined ? (body.category || null) : undefined,
+        criticality:         body.criticality         ?? undefined,
+        status:              body.status              ?? undefined,
+        isExempt:            body.isExempt            !== undefined ? body.isExempt : undefined,
+        exemptReason:        body.exemptReason        !== undefined ? str(body.exemptReason, 'Exempt reason', { max: 500 }) : undefined,
+        trustCenterUrl:      body.trustCenterUrl      !== undefined ? url(body.trustCenterUrl, 'Trust center URL') : undefined,
+        primaryContactName:  body.primaryContactName  !== undefined ? str(body.primaryContactName, 'Contact name', { max: 255 }) : undefined,
+        primaryContactEmail: body.primaryContactEmail !== undefined ? email(body.primaryContactEmail, 'Contact email') : undefined,
+        primaryContactPhone: body.primaryContactPhone !== undefined ? str(body.primaryContactPhone, 'Contact phone', { max: 50 }) : undefined,
+        processesPII:        body.processesPII        !== undefined ? body.processesPII : undefined,
+        processesPHI:        body.processesPHI        !== undefined ? body.processesPHI : undefined,
+        processesFinancial:  body.processesFinancial  !== undefined ? body.processesFinancial : undefined,
+        dataRetentionDays:   body.dataRetentionDays   !== undefined ? (body.dataRetentionDays || null) : undefined,
+        dataLocation:        body.dataLocation        !== undefined ? str(body.dataLocation, 'Data location', { max: 255 }) : undefined,
+        contractStartDate:   body.contractStartDate   !== undefined ? (body.contractStartDate ? new Date(body.contractStartDate) : null) : undefined,
+        contractEndDate:     body.contractEndDate     !== undefined ? (body.contractEndDate ? new Date(body.contractEndDate) : null) : undefined,
+        contractValue:       body.contractValue       !== undefined ? (body.contractValue || null) : undefined,
+        lastReviewDate:      body.lastReviewDate      !== undefined ? (body.lastReviewDate ? new Date(body.lastReviewDate) : null) : undefined,
+        nextReviewDate:      body.nextReviewDate      !== undefined ? (body.nextReviewDate ? new Date(body.nextReviewDate) : null) : undefined,
+        tags:                body.tags                !== undefined ? JSON.stringify(body.tags) : undefined,
+        notes:               body.notes               !== undefined ? str(body.notes, 'Notes', { max: 10000 }) : undefined,
+      },
+    });
+  } catch (err) {
+    if (err instanceof ValidationError) return NextResponse.json({ error: err.message }, { status: 400 });
+    throw err;
+  }
 
   // Recalculate risk if relevant fields changed
   if (

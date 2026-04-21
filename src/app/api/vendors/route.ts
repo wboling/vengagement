@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { SESSION_COOKIE, validateSessionToken, isAdmin, isResponder, resolveTenantId } from '@/lib/auth/session';
 import { logAudit } from '@/lib/audit';
+import { str, email, url, ValidationError } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,46 +51,44 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { bulk, vendors: bulkVendors, ...singleVendor } = body;
 
+  try {
   if (bulk && Array.isArray(bulkVendors)) {
-    const created = await prisma.$transaction(
-      bulkVendors.map((v: Record<string, unknown>) =>
-        prisma.vendor.create({
-          data: {
-            tenantId: session.tenantId,
-            name: String(v.name),
-            legalName: v.legalName ? String(v.legalName) : null,
-            website: v.website ? String(v.website) : null,
-            description: v.description ? String(v.description) : null,
-            category: v.category ? String(v.category) : undefined,
-            criticality: v.criticality ? String(v.criticality) : 'medium',
-            isExempt: Boolean(v.isExempt),
-            createdBy: session.userId,
-          },
-        })
-      )
-    );
+    const sanitized = bulkVendors
+      .filter((v) => typeof v === 'object' && v !== null)
+      .map((v: Record<string, unknown>) => ({
+        tenantId: session.tenantId,
+        name: str(v.name, 'Vendor name', { required: true, max: 255 })!,
+        legalName: str(v.legalName, 'Legal name', { max: 255 }),
+        website: url(v.website, 'Website'),
+        description: str(v.description, 'Description', { max: 2000 }),
+        category: str(v.category, 'Category', { max: 100 }) ?? undefined,
+        criticality: ['critical','high','medium','low'].includes(String(v.criticality)) ? String(v.criticality) : 'medium',
+        isExempt: Boolean(v.isExempt),
+        createdBy: session.userId,
+      }));
+    const created = await prisma.$transaction(sanitized.map((d) => prisma.vendor.create({ data: d })));
     return NextResponse.json({ success: true, count: created.length });
   }
 
   const vendor = await prisma.vendor.create({
     data: {
       tenantId: session.tenantId,
-      name: singleVendor.name,
-      legalName: singleVendor.legalName || null,
-      website: singleVendor.website || null,
-      description: singleVendor.description || null,
+      name: str(singleVendor.name, 'Vendor name', { required: true, max: 255 })!,
+      legalName: str(singleVendor.legalName, 'Legal name', { max: 255 }),
+      website: url(singleVendor.website, 'Website'),
+      description: str(singleVendor.description, 'Description', { max: 2000 }),
       category: singleVendor.category || null,
       criticality: singleVendor.criticality ?? 'medium',
       status: singleVendor.status ?? 'active',
       isExempt: singleVendor.isExempt ?? false,
-      exemptReason: singleVendor.exemptReason || null,
-      trustCenterUrl: singleVendor.trustCenterUrl || null,
-      primaryContactName: singleVendor.primaryContactName || null,
-      primaryContactEmail: singleVendor.primaryContactEmail || null,
-      primaryContactPhone: singleVendor.primaryContactPhone || null,
-      techContactName: singleVendor.techContactName || null,
-      techContactEmail: singleVendor.techContactEmail || null,
-      techContactPhone: singleVendor.techContactPhone || null,
+      exemptReason: str(singleVendor.exemptReason, 'Exempt reason', { max: 500 }),
+      trustCenterUrl: url(singleVendor.trustCenterUrl, 'Trust center URL'),
+      primaryContactName: str(singleVendor.primaryContactName, 'Contact name', { max: 255 }),
+      primaryContactEmail: email(singleVendor.primaryContactEmail, 'Contact email'),
+      primaryContactPhone: str(singleVendor.primaryContactPhone, 'Contact phone', { max: 50 }),
+      techContactName: str(singleVendor.techContactName, 'Tech contact name', { max: 255 }),
+      techContactEmail: email(singleVendor.techContactEmail, 'Tech contact email'),
+      techContactPhone: str(singleVendor.techContactPhone, 'Tech contact phone', { max: 50 }),
       processesPII: singleVendor.processesPII ?? false,
       processesPHI: singleVendor.processesPHI ?? false,
       processesFinancial: singleVendor.processesFinancial ?? false,
@@ -108,4 +107,8 @@ export async function POST(req: NextRequest) {
 
   await logAudit(session, 'create', 'vendor', vendor.id, vendor.name, undefined, req);
   return NextResponse.json({ success: true, vendor }, { status: 201 });
+  } catch (err) {
+    if (err instanceof ValidationError) return NextResponse.json({ error: err.message }, { status: 400 });
+    throw err;
+  }
 }
