@@ -10,8 +10,10 @@ interface BrandingConfig {
   successColor?: string;
   warningColor?: string;
   dangerColor?: string;
-  navHoverBg?: string;
-  navActiveBg?: string;
+  navHoverBgDark?: string;
+  navHoverBgLight?: string;
+  navActiveBgDark?: string;
+  navActiveBgLight?: string;
   logoUrl?: string;
 }
 
@@ -65,11 +67,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.setAttribute('data-theme', colorMode);
   }, [colorMode, mounted]);
 
-  // Apply all branding colors as CSS variable overrides
+  // Apply all branding colors as CSS variable overrides.
+  // colorMode is a dependency so nav dark/light variants re-apply on mode toggle.
   useEffect(() => {
     if (!mounted) return;
     document.documentElement.style.setProperty('--color-accent', accentColor);
     document.documentElement.style.setProperty('--color-accent-hover', accentColor);
+    // Derived active-nav background (overridden below if explicitly set)
     document.documentElement.style.setProperty('--color-accent-subtle', hexToRgba(accentColor, 0.08));
     if (branding.secondaryColor) {
       document.documentElement.style.setProperty('--color-teal', branding.secondaryColor);
@@ -87,13 +91,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       document.documentElement.style.setProperty('--color-danger', branding.dangerColor);
       document.documentElement.style.setProperty('--color-danger-subtle', hexToRgba(branding.dangerColor, 0.1));
     }
-    if (branding.navHoverBg) {
-      document.documentElement.style.setProperty('--color-bg-hover', branding.navHoverBg);
-    }
-    if (branding.navActiveBg) {
-      document.documentElement.style.setProperty('--color-accent-subtle', branding.navActiveBg);
-    }
-  }, [accentColor, branding, mounted]);
+    // Nav-specific colors — pick dark or light variant based on current mode
+    const navHoverBg = colorMode === 'dark' ? branding.navHoverBgDark : branding.navHoverBgLight;
+    const navActiveBg = colorMode === 'dark' ? branding.navActiveBgDark : branding.navActiveBgLight;
+    if (navHoverBg)  document.documentElement.style.setProperty('--color-bg-hover', navHoverBg);
+    if (navActiveBg) document.documentElement.style.setProperty('--color-accent-subtle', navActiveBg);
+  }, [accentColor, branding, colorMode, mounted]);
 
   const toggleColorMode = useCallback(() => {
     setColorMode((prev) => {

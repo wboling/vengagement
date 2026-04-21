@@ -78,8 +78,10 @@ export default function SettingsPage() {
 
   let branding: {
     primaryColor?: string; secondaryColor?: string; successColor?: string;
-    warningColor?: string; dangerColor?: string; navHoverBg?: string;
-    navActiveBg?: string; logoUrl?: string;
+    warningColor?: string; dangerColor?: string;
+    navHoverBgDark?: string; navHoverBgLight?: string;
+    navActiveBgDark?: string; navActiveBgLight?: string;
+    logoUrl?: string;
   } = {};
   try { branding = JSON.parse(settings.branding || '{}'); } catch {}
 
@@ -309,13 +311,11 @@ export default function SettingsPage() {
             <div className="space-y-5">
               {/* Color pickers */}
               {([
-                { key: 'primaryColor',   label: 'Primary / Accent',        cssVar: '--color-accent',       defaultVal: '#4f46e5', hint: 'Buttons, active nav text, links' },
-                { key: 'navActiveBg',    label: 'Active Nav Background',    cssVar: '--color-accent-subtle', defaultVal: '#1a1f3a', hint: 'Background of the currently selected nav item' },
-                { key: 'navHoverBg',     label: 'Nav Hover Background',     cssVar: '--color-bg-hover',      defaultVal: '#1e2840', hint: 'Background when hovering over nav items and table rows' },
-                { key: 'secondaryColor', label: 'Secondary / Teal',         cssVar: '--color-teal',          defaultVal: '#0d9488', hint: 'Client cards and secondary highlights' },
-                { key: 'successColor',   label: 'Success',                  cssVar: '--color-success',       defaultVal: '#10b981', hint: 'Active, approved, received states' },
-                { key: 'warningColor',   label: 'Warning',                  cssVar: '--color-warning',       defaultVal: '#f59e0b', hint: 'Pending and review states' },
-                { key: 'dangerColor',    label: 'Danger / Error',           cssVar: '--color-danger',        defaultVal: '#f43f5e', hint: 'Overdue, critical, error states' },
+                { key: 'primaryColor',   label: 'Primary / Accent',  cssVar: '--color-accent',   defaultVal: '#4f46e5', hint: 'Buttons, active nav text, links' },
+                { key: 'secondaryColor', label: 'Secondary / Teal',  cssVar: '--color-teal',     defaultVal: '#0d9488', hint: 'Client cards and secondary highlights' },
+                { key: 'successColor',   label: 'Success',           cssVar: '--color-success',  defaultVal: '#10b981', hint: 'Active, approved, received states' },
+                { key: 'warningColor',   label: 'Warning',           cssVar: '--color-warning',  defaultVal: '#f59e0b', hint: 'Pending and review states' },
+                { key: 'dangerColor',    label: 'Danger / Error',    cssVar: '--color-danger',   defaultVal: '#f43f5e', hint: 'Overdue, critical, error states' },
               ] as const).map(({ key, label, cssVar, defaultVal, hint }) => {
                 const val = branding[key as keyof typeof branding] as string ?? defaultVal;
                 return (
@@ -365,6 +365,30 @@ export default function SettingsPage() {
                 );
               })}
 
+              {/* Nav colors — dual dark/light pickers */}
+              <DualModeColorPicker
+                label="Active Nav Background"
+                hint="Background fill behind the currently selected nav item"
+                darkKey="navActiveBgDark"
+                lightKey="navActiveBgLight"
+                darkDefault="#1a1f3a"
+                lightDefault="#eef2ff"
+                cssVar="--color-accent-subtle"
+                branding={branding}
+                onchange={(nb) => set('branding', JSON.stringify(nb))}
+              />
+              <DualModeColorPicker
+                label="Nav Hover Background"
+                hint="Background when hovering over nav items and table rows"
+                darkKey="navHoverBgDark"
+                lightKey="navHoverBgLight"
+                darkDefault="#1e2840"
+                lightDefault="#f1f5f9"
+                cssVar="--color-bg-hover"
+                branding={branding}
+                onchange={(nb) => set('branding', JSON.stringify(nb))}
+              />
+
               {/* Primary color presets */}
               <div>
                 <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2">Primary color presets</p>
@@ -401,6 +425,84 @@ export default function SettingsPage() {
       )}
         </div>{/* end content pane */}
       </div>{/* end flex row */}
+    </div>
+  );
+}
+
+interface DualModeColorPickerProps {
+  label: string;
+  hint: string;
+  darkKey: string;
+  lightKey: string;
+  darkDefault: string;
+  lightDefault: string;
+  cssVar: string;
+  branding: Record<string, string | undefined>;
+  onchange: (updated: Record<string, string | undefined>) => void;
+}
+
+function DualModeColorPicker({ label, hint, darkKey, lightKey, darkDefault, lightDefault, cssVar, branding, onchange }: DualModeColorPickerProps) {
+  const [mode, setMode] = useState<'dark' | 'light'>('dark');
+  const activeKey = mode === 'dark' ? darkKey : lightKey;
+  const activeDefault = mode === 'dark' ? darkDefault : lightDefault;
+  const val = branding[activeKey] ?? activeDefault;
+
+  function handleChange(color: string) {
+    const nb = { ...branding, [activeKey]: color };
+    onchange(nb);
+    // Only apply live preview if this mode matches the page's current data-theme
+    const pageMode = document.documentElement.getAttribute('data-theme') ?? 'dark';
+    if (pageMode === mode) {
+      document.documentElement.style.setProperty(cssVar, color);
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-0.5">
+        <label className="text-xs font-medium text-[var(--color-text-secondary)]">{label}</label>
+        <div className="flex items-center gap-0.5 bg-[var(--color-bg-elevated)] rounded-lg p-0.5 border border-[var(--color-border)]">
+          {(['dark', 'light'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={`px-2.5 py-0.5 rounded-md text-xs font-medium transition-colors ${
+                mode === m
+                  ? 'bg-[var(--color-bg-card)] text-[var(--color-text-primary)] shadow-sm'
+                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+              }`}
+            >
+              {m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="text-xs text-[var(--color-text-muted)] mb-2">{hint}</p>
+      <div className="flex items-center gap-3">
+        <input
+          type="color"
+          value={val}
+          onChange={(e) => handleChange(e.target.value)}
+          style={{ width: '44px', height: '32px', padding: '2px' }}
+        />
+        <input
+          value={val}
+          onChange={(e) => handleChange(e.target.value)}
+          placeholder={activeDefault}
+          className="font-mono text-sm"
+          style={{ maxWidth: '140px' }}
+        />
+        {val !== activeDefault && (
+          <button
+            type="button"
+            onClick={() => handleChange(activeDefault)}
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+          >
+            Reset
+          </button>
+        )}
+      </div>
     </div>
   );
 }
