@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { CheckCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle, AlertCircle, Upload, FolderCheck, Clock } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 interface Question {
@@ -14,11 +14,17 @@ interface Section {
   id: string; title: string; description?: string; questions: Question[];
 }
 
+interface DocRequest {
+  id: string; documentType: string; label: string | null; description: string | null;
+  nistRef: string | null; status: string; dueDate: string | null;
+}
+
 interface Assignment {
   id: string; vendorName: string; questionnaireName: string;
   questionnaireDescription: string | null; dueDate: string | null;
   status: string; sections: Section[];
   responses: Record<string, { response: string; comments?: string }>;
+  documentRequests: DocRequest[];
 }
 
 export default function GuestQuestionnairePage() {
@@ -29,6 +35,9 @@ export default function GuestQuestionnairePage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
+  const [uploadedDocs, setUploadedDocs] = useState<Record<string, string>>({});
+  const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => { load(); }, [token]);
 
@@ -39,7 +48,7 @@ export default function GuestQuestionnairePage() {
       setError(data.error ?? 'Unable to load questionnaire.');
     } else {
       const data = await res.json();
-      setAssignment(data.assignment);
+      setAssignment({ ...data.assignment, documentRequests: data.assignment.documentRequests ?? [] });
       const prefilled: Record<string, string> = {};
       Object.entries(data.assignment.responses ?? {}).forEach(([k, v]) => {
         prefilled[k] = (v as { response: string }).response ?? '';
@@ -47,6 +56,29 @@ export default function GuestQuestionnairePage() {
       setResponses(prefilled);
     }
     setLoading(false);
+  }
+
+  async function uploadFile(requestId: string, docType: string, label: string) {
+    const input = fileRefs.current[requestId];
+    if (!input?.files?.[0]) return;
+    setUploadingDoc(requestId);
+    const fd = new FormData();
+    fd.append('file', input.files[0]);
+    fd.append('documentRequestId', requestId);
+    fd.append('documentType', docType);
+    fd.append('name', label);
+    const res = await fetch(`/api/q/${token}/upload`, { method: 'POST', body: fd });
+    if (res.ok) {
+      setUploadedDocs((prev) => ({ ...prev, [requestId]: input.files![0].name }));
+      setAssignment((prev) => prev ? {
+        ...prev,
+        documentRequests: prev.documentRequests.map((r) => r.id === requestId ? { ...r, status: 'received' } : r),
+      } : prev);
+    } else {
+      const d = await res.json().catch(() => ({}));
+      alert(d.error ?? 'Upload failed. Please try again.');
+    }
+    setUploadingDoc(null);
   }
 
   async function submit(e: React.FormEvent) {
@@ -258,13 +290,102 @@ export default function GuestQuestionnairePage() {
                   )}
 
                   {q.type === 'file' && (
-                    <p className="text-xs text-[#8b9bb4] italic">File upload not supported in this form. Please email the document directly to your contact.</p>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1e2a3a] hover:border-indigo-500/40 text-xs text-[#8b9bb4] transition-colors w-fit">
+                        <Upload size={11} />
+                        {responses[q.id] ? `Uploaded: ${responses[q.id]}` : 'Choose file'}
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const fd = new FormData();
+                            fd.append('file', file);
+                            fd.append('documentType', 'Other');
+                            fd.append('name', file.name);
+                            const res = await fetch(`/api/q/${token}/upload`, { method: 'POST', body: fd });
+                            if (res.ok) setResponse(q.id, file.name);
+                          }}
+                        />
+                      </label>
+                      {responses[q.id] && (
+                        <p className="text-xs text-emerald-400">✓ File uploaded successfully</p>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}
             </div>
           </div>
         ))}
+
+        {/* Document Requests Section */}
+        {assignment.documentRequests.length > 0 && (
+          <div className="border-t border-[#1e2a3a] pt-8">
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-1">
+                <FolderCheck size={16} className="text-indigo-400" />
+                <h2 className="text-base font-semibold text-white">Requested Documents</h2>
+              </div>
+              <p className="text-sm text-[#8b9bb4]">
+                Please upload the following documents as part of your due diligence submission. Documents marked as required support our NIST CSF supply chain risk management program.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {assignment.documentRequests.map((req) => {
+                const isReceived = req.status === 'received' || !!uploadedDocs[req.id];
+                const isUploading = uploadingDoc === req.id;
+                const uploadedName = uploadedDocs[req.id];
+                return (
+                  <div key={req.id} className={`bg-[#131929] border rounded-xl p-4 ${isReceived ? 'border-emerald-500/30' : 'border-[#1e2a3a]'}`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-white">{req.label ?? req.documentType}</p>
+                          {req.nistRef && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded font-mono">{req.nistRef}</span>
+                          )}
+                          {isReceived ? (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">Uploaded</span>
+                          ) : (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded flex items-center gap-1">
+                              <Clock size={9} /> Pending
+                            </span>
+                          )}
+                        </div>
+                        {req.description && <p className="text-xs text-[#8b9bb4] mt-1">{req.description}</p>}
+                        {req.dueDate && <p className="text-xs text-[#8b9bb4] mt-0.5">Due: {formatDate(req.dueDate)}</p>}
+                        {uploadedName && <p className="text-xs text-emerald-400 mt-1">✓ {uploadedName}</p>}
+                      </div>
+
+                      {!isReceived && (
+                        <label className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex-shrink-0 ${
+                          isUploading
+                            ? 'border-[#1e2a3a] text-[#4a5568] opacity-60'
+                            : 'border-indigo-500/40 text-indigo-400 hover:bg-indigo-500/10'
+                        }`}>
+                          <Upload size={11} />
+                          {isUploading ? 'Uploading…' : 'Upload'}
+                          <input
+                            type="file"
+                            accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
+                            className="hidden"
+                            disabled={isUploading}
+                            ref={(el) => { fileRefs.current[req.id] = el; }}
+                            onChange={() => uploadFile(req.id, req.documentType, req.label ?? req.documentType)}
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="pt-4 flex justify-end">
           <button

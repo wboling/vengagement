@@ -95,10 +95,24 @@ Respond with only the JSON object, no markdown.`;
   }
 
   if (documentType === 'OCG') {
-    return `You are a legal billing and compliance analyst specializing in Outside Counsel Guidelines for law firms. Analyze this OCG and respond with JSON only:
-${baseSchema}
+    const ocgSchema = baseSchema.replace(
+      '"overallRisk": "critical|high|medium|low"',
+      `"overallRisk": "critical|high|medium|low",
+  "aiUsageRestrictions": {
+    "detected": true,
+    "summary": "1-2 sentence description of AI/GenAI restrictions, or null if none detected",
+    "restrictions": ["specific restriction text from the OCG"],
+    "permittedUses": ["any explicitly permitted AI uses"],
+    "prohibitedUses": ["explicitly prohibited AI uses, tools, or platforms"],
+    "requiresDisclosure": true,
+    "requiresClientConsent": false
+  }`
+    );
 
-STANDARDS BENCHMARK: Evaluate this OCG against ABA Model Rules (1.5 reasonable fees, 1.6 confidentiality, 5.3 supervision of non-lawyers), applicable state bar rules, and common industry security standards (NIST CSF, ISO 27001, SOC 2). Flag any requirements that conflict with these standards or create undue compliance burden.
+    return `You are a legal billing and compliance analyst specializing in Outside Counsel Guidelines for law firms. Analyze this OCG and respond with JSON only:
+${ocgSchema}
+
+STANDARDS BENCHMARK: Evaluate this OCG against ABA Model Rules (1.5 reasonable fees, 1.6 confidentiality, 5.3 supervision of non-lawyers), ABA Formal Opinions 477R, 498, 503, and 512 on technology and AI use, applicable state bar rules, and common industry security standards (NIST CSF, ISO 27001, SOC 2). Flag any requirements that conflict with these standards or create undue compliance burden.
 
 keyProvisions MUST cover:
 BILLING:
@@ -116,12 +130,34 @@ SECURITY & CONFIDENTIALITY:
 - Subcontractor and vendor approval requirements
 - Encryption standards required
 
+AI / GENERATIVE AI USAGE (CRITICAL — analyze thoroughly):
+Search the entire document for any language related to: artificial intelligence, generative AI, AI tools, large language models, LLMs, ChatGPT, Copilot, machine learning, automated tools, technology-assisted review, e-discovery AI, or similar terms. Extract ALL such provisions verbatim.
+
+For aiUsageRestrictions:
+- "detected": set to true if ANY AI-related language exists, false if completely absent
+- "summary": plain-language description of the client's AI stance, or null if not addressed
+- "restrictions": verbatim quotes or close paraphrases of each restriction
+- "permittedUses": any AI uses the client explicitly allows (e.g., "technology-assisted review for e-discovery is permitted")
+- "prohibitedUses": specific tools, platforms, or use cases that are banned (e.g., "use of ChatGPT or similar consumer-grade LLMs is prohibited")
+- "requiresDisclosure": true if the OCG requires the firm to disclose AI usage to the client
+- "requiresClientConsent": true if the OCG requires the client's prior written consent before using AI tools
+
+Common AI restriction patterns to look for:
+- Blanket prohibition on generative AI tools
+- Prohibition on inputting client confidential information into AI systems
+- Requirements to disclose AI-generated work product
+- Prohibition on billing AI-generated time
+- Requirements to obtain client consent before using AI
+- Requirements that AI-generated content be reviewed by a licensed attorney
+- Restrictions on specific named tools (ChatGPT, Copilot, Harvey, etc.)
+
 RISK FLAGS (assess against standards):
 - Insurance requirements exceeding standard professional liability coverage — flag amounts
 - Indemnification obligations broader than ABA Model Rules contemplate
 - Unlimited or uncapped liability provisions
 - Audit rights allowing unannounced access — flag as operational risk
 - Requirements mandating specific software, hardware, or certifications not tied to a recognized standard
+- AI restrictions that could conflict with firm-wide technology investments or efficiency initiatives — flag as operational risk
 
 Respond with only the JSON object, no markdown.`;
   }

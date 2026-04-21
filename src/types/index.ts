@@ -180,6 +180,15 @@ export interface AiReviewResult {
   recommendations: string[];
   overallRisk: RiskLevel;
   riskContributors?: Array<{ item: string; impact: string; mitigation: string }>;
+  aiUsageRestrictions?: {
+    detected: boolean;
+    summary: string | null;
+    restrictions: string[];
+    permittedUses: string[];
+    prohibitedUses: string[];
+    requiresDisclosure: boolean;
+    requiresClientConsent: boolean;
+  };
 }
 
 export interface VendorDocument {

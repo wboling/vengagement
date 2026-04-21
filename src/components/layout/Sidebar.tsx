@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
 import { useTheme } from '@/lib/theme';
+import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { useEffect, useRef, useState } from 'react';
 
@@ -135,7 +136,7 @@ function TenantSwitcher({ overrideName, onSwitch }: { overrideName: string | nul
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const { user, tenant } = useAuth();
-  const { colorMode, toggleColorMode } = useTheme();
+  const { colorMode, toggleColorMode, branding } = useTheme();
   const [overrideName, setOverrideName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -172,6 +173,15 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       {/* Header */}
       <div className="flex items-start justify-between px-5 py-4 border-b border-[var(--color-border)]">
         <div className="min-w-0 flex-1">
+          {branding.logoUrl && !isPlatformAdmin && (
+            <div className="mb-3">
+              <img
+                src={branding.logoUrl}
+                alt={tenant.name}
+                className="h-7 max-w-[120px] object-contain"
+              />
+            </div>
+          )}
           {isPlatformAdmin && !overrideName ? (
             <>
               <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider font-medium">Platform</p>

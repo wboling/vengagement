@@ -63,15 +63,24 @@ export async function PATCH(req: NextRequest) {
   const session = await validateSessionToken(token);
   if (!session || !isCompanyAdmin(session)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { id, name, role, mfaEnabled } = await req.json();
+  const { id, name, role, mfaEnabled, tenantId } = await req.json();
   if (!id) return NextResponse.json({ error: 'User ID required' }, { status: 400 });
 
-  const target = await prisma.user.findFirst({ where: { id, tenantId: session.tenantId } });
+  // Platform admins can edit any user; company admins restricted to their own tenant
+  const target = isAdmin(session)
+    ? await prisma.user.findUnique({ where: { id } })
+    : await prisma.user.findFirst({ where: { id, tenantId: session.tenantId } });
   if (!target) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  // Prevent non-admins from modifying admins
   if (target.role === 'admin' && !isAdmin(session)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  // Only platform admins can change a user's tenant
+  const newTenantId = isAdmin(session) && tenantId ? tenantId : undefined;
+  if (newTenantId) {
+    const tenantExists = await prisma.tenant.findUnique({ where: { id: newTenantId } });
+    if (!tenantExists) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
   }
 
   const user = await prisma.user.update({
@@ -80,8 +89,9 @@ export async function PATCH(req: NextRequest) {
       name:       name       ?? undefined,
       role:       role       ?? undefined,
       mfaEnabled: mfaEnabled !== undefined ? mfaEnabled : undefined,
+      tenantId:   newTenantId,
     },
-    select: { id: true, name: true, email: true, role: true, mfaEnabled: true },
+    select: { id: true, name: true, email: true, role: true, mfaEnabled: true, tenantId: true },
   });
 
   return NextResponse.json({ success: true, user });

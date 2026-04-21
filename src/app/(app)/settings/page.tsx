@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Save, Server, Brain, Bell, Shield, Workflow, Palette, Users, Plus, Trash2, Edit2, Shield as ShieldIcon, KeyRound } from 'lucide-react';
+import { Save, Server, Brain, Bell, Shield, Workflow, Palette, Users, Plus, Trash2, Edit2, Shield as ShieldIcon, KeyRound, Building2, Upload, Image as ImageIcon } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/lib/store';
+import { useAuth } from '@/lib/auth/context';
 import { formatDate } from '@/lib/utils';
 
 interface Settings {
@@ -21,7 +22,7 @@ interface Settings {
   branding: string;
 }
 
-type Tab = 'smtp' | 'ai' | 'notifications' | 'lifecycle' | 'questionnaire' | 'users' | 'branding' | 'sso';
+type Tab = 'smtp' | 'ai' | 'notifications' | 'lifecycle' | 'questionnaire' | 'users' | 'branding' | 'sso' | 'organization';
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -75,10 +76,14 @@ export default function SettingsPage() {
 
   if (loading || !settings) return <div className="skeleton h-48 rounded-xl" />;
 
-  let branding: { primaryColor?: string } = {};
+  let branding: {
+    primaryColor?: string; secondaryColor?: string; successColor?: string;
+    warningColor?: string; dangerColor?: string; logoUrl?: string;
+  } = {};
   try { branding = JSON.parse(settings.branding || '{}'); } catch {}
 
   const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
+    { id: 'organization', label: 'Organization',     icon: Building2 },
     { id: 'smtp',         label: 'Email / SMTP',     icon: Server },
     { id: 'ai',           label: 'AI Configuration', icon: Brain },
     { id: 'notifications',label: 'Notifications',    icon: Bell },
@@ -96,7 +101,7 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Tenant Settings</h2>
           <p className="text-sm text-[var(--color-text-muted)]">Configure your workspace settings</p>
         </div>
-        {tab !== 'users' && tab !== 'sso' && <Button icon={Save} loading={saving} onClick={save}>Save Changes</Button>}
+        {tab !== 'users' && tab !== 'sso' && tab !== 'organization' && <Button icon={Save} loading={saving} onClick={save}>Save Changes</Button>}
       </div>
 
       <div className="flex gap-6 items-start">
@@ -120,6 +125,8 @@ export default function SettingsPage() {
 
         {/* Content pane */}
         <div className="flex-1 min-w-0">
+
+      {tab === 'organization' && <OrganizationPanel />}
 
       {tab === 'smtp' && (
         <Card>
@@ -286,41 +293,78 @@ export default function SettingsPage() {
 
       {tab === 'branding' && (
         <div className="space-y-5">
-          <Card>
-            <CardTitle className="mb-2">Brand Color</CardTitle>
-            <p className="text-xs text-[var(--color-text-muted)] mb-4">
-              Set the primary accent color used for buttons, active states, and links. Changes apply immediately and persist for all users.
-            </p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Primary Color</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={branding.primaryColor ?? '#4f46e5'}
-                    onChange={(e) => {
-                      const newBranding = { ...branding, primaryColor: e.target.value };
-                      set('branding', JSON.stringify(newBranding));
-                      document.documentElement.style.setProperty('--color-accent', e.target.value);
-                    }}
-                    style={{ width: '48px', height: '36px', padding: '2px', cursor: 'pointer' }}
-                  />
-                  <input
-                    value={branding.primaryColor ?? '#4f46e5'}
-                    onChange={(e) => {
-                      const newBranding = { ...branding, primaryColor: e.target.value };
-                      set('branding', JSON.stringify(newBranding));
-                      document.documentElement.style.setProperty('--color-accent', e.target.value);
-                    }}
-                    placeholder="#4f46e5"
-                    className="flex-1 font-mono text-sm"
-                    style={{ maxWidth: '160px' }}
-                  />
-                </div>
-              </div>
+          {/* Logo */}
+          <LogoUploadCard brandingLogoUrl={branding.logoUrl} onUploaded={(url) => {
+            const newBranding = { ...branding, logoUrl: url };
+            set('branding', JSON.stringify(newBranding));
+          }} />
 
+          {/* Colors */}
+          <Card>
+            <CardTitle className="mb-2">Theme Colors</CardTitle>
+            <p className="text-xs text-[var(--color-text-muted)] mb-5">
+              Customize the color palette for your workspace. Changes apply live and persist for all users.
+            </p>
+            <div className="space-y-5">
+              {/* Color pickers */}
+              {([
+                { key: 'primaryColor',   label: 'Primary / Accent',   cssVar: '--color-accent',   defaultVal: '#4f46e5', hint: 'Used for buttons, active nav, links' },
+                { key: 'secondaryColor', label: 'Secondary / Teal',   cssVar: '--color-teal',     defaultVal: '#0d9488', hint: 'Used for client cards and highlights' },
+                { key: 'successColor',   label: 'Success',            cssVar: '--color-success',  defaultVal: '#10b981', hint: 'Used for active/approved/received states' },
+                { key: 'warningColor',   label: 'Warning',            cssVar: '--color-warning',  defaultVal: '#f59e0b', hint: 'Used for pending and review states' },
+                { key: 'dangerColor',    label: 'Danger / Error',     cssVar: '--color-danger',   defaultVal: '#f43f5e', hint: 'Used for overdue, critical, error states' },
+              ] as const).map(({ key, label, cssVar, defaultVal, hint }) => {
+                const val = branding[key as keyof typeof branding] as string ?? defaultVal;
+                return (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-0.5">{label}</label>
+                    <p className="text-xs text-[var(--color-text-muted)] mb-2">{hint}</p>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={val}
+                        onChange={(e) => {
+                          const nb = { ...branding, [key]: e.target.value };
+                          set('branding', JSON.stringify(nb));
+                          document.documentElement.style.setProperty(cssVar, e.target.value);
+                          if (key === 'primaryColor') {
+                            document.documentElement.style.setProperty('--color-accent-hover', e.target.value);
+                          }
+                        }}
+                        style={{ width: '44px', height: '32px', padding: '2px' }}
+                      />
+                      <input
+                        value={val}
+                        onChange={(e) => {
+                          const nb = { ...branding, [key]: e.target.value };
+                          set('branding', JSON.stringify(nb));
+                          document.documentElement.style.setProperty(cssVar, e.target.value);
+                        }}
+                        placeholder={defaultVal}
+                        className="font-mono text-sm"
+                        style={{ maxWidth: '140px' }}
+                      />
+                      {val !== defaultVal && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nb = { ...branding, [key]: defaultVal };
+                            set('branding', JSON.stringify(nb));
+                            document.documentElement.style.setProperty(cssVar, defaultVal);
+                          }}
+                          className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Primary color presets */}
               <div>
-                <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2">Quick presets</p>
+                <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2">Primary color presets</p>
                 <div className="flex flex-wrap gap-2">
                   {[
                     { label: 'Indigo', color: '#4f46e5' },
@@ -335,9 +379,10 @@ export default function SettingsPage() {
                       key={color}
                       type="button"
                       onClick={() => {
-                        const newBranding = { ...branding, primaryColor: color };
-                        set('branding', JSON.stringify(newBranding));
+                        const nb = { ...branding, primaryColor: color };
+                        set('branding', JSON.stringify(nb));
                         document.documentElement.style.setProperty('--color-accent', color);
+                        document.documentElement.style.setProperty('--color-accent-hover', color);
                       }}
                       className="flex items-center gap-1.5 px-2 py-1 rounded border border-[var(--color-border)] hover:border-[var(--color-text-muted)] text-xs text-[var(--color-text-secondary)] transition-colors"
                     >
@@ -354,6 +399,131 @@ export default function SettingsPage() {
         </div>{/* end content pane */}
       </div>{/* end flex row */}
     </div>
+  );
+}
+
+function OrganizationPanel() {
+  const toast = useToast();
+  const [form, setForm] = useState({ name: '', industry: '', primaryContact: '' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/settings/organization').then((r) => r.json()).then((d) => {
+      if (d.tenant) setForm({ name: d.tenant.name ?? '', industry: d.tenant.industry ?? '', primaryContact: d.tenant.primaryContact ?? '' });
+      setLoading(false);
+    });
+  }, []);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const res = await fetch('/api/settings/organization', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(form),
+    });
+    if (res.ok) toast.success('Organization profile saved');
+    else toast.error('Failed to save');
+    setSaving(false);
+  }
+
+  if (loading) return <div className="skeleton h-48 rounded-xl" />;
+
+  return (
+    <Card>
+      <CardTitle className="mb-2">Organization Profile</CardTitle>
+      <p className="text-xs text-[var(--color-text-muted)] mb-5">
+        Update your organization name and industry. This name appears in the sidebar header and all system communications.
+      </p>
+      <form onSubmit={save} className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Organization Name *</label>
+          <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Acme Legal LLP" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Industry</label>
+          <input value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} placeholder="Law Firm" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Primary Contact</label>
+          <input value={form.primaryContact} onChange={(e) => setForm({ ...form, primaryContact: e.target.value })} placeholder="Jane Smith, General Counsel" />
+        </div>
+        <div className="pt-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <Save size={14} />
+            {saving ? 'Saving…' : 'Save Organization Profile'}
+          </button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+function LogoUploadCard({ brandingLogoUrl, onUploaded }: { brandingLogoUrl?: string; onUploaded: (url: string) => void }) {
+  const toast = useToast();
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState<string | null>(brandingLogoUrl ?? null);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/settings/branding/logo', { method: 'POST', body: fd });
+    if (res.ok) {
+      const data = await res.json();
+      setPreview(data.logoUrl);
+      onUploaded(data.logoUrl);
+      toast.success('Logo uploaded');
+    } else {
+      const d = await res.json().catch(() => ({}));
+      toast.error(d.error ?? 'Upload failed');
+    }
+    setUploading(false);
+  }
+
+  return (
+    <Card>
+      <CardTitle className="mb-2">Organization Logo</CardTitle>
+      <p className="text-xs text-[var(--color-text-muted)] mb-4">
+        Upload your organization logo. Displayed in the sidebar header. PNG, JPG, SVG, or WEBP recommended.
+      </p>
+      <div className="flex items-start gap-4">
+        <div className="w-20 h-20 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] flex items-center justify-center overflow-hidden flex-shrink-0">
+          {preview ? (
+            <img src={preview} alt="Logo" className="w-full h-full object-contain p-2" />
+          ) : (
+            <ImageIcon size={24} className="text-[var(--color-text-muted)] opacity-40" />
+          )}
+        </div>
+        <div className="flex-1">
+          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--color-border)] hover:border-[var(--color-text-muted)] text-xs font-medium text-[var(--color-text-secondary)] transition-colors w-fit">
+            <Upload size={12} />
+            {uploading ? 'Uploading…' : preview ? 'Replace logo' : 'Upload logo'}
+            <input type="file" accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp" className="hidden" onChange={handleFile} disabled={uploading} />
+          </label>
+          {preview && (
+            <button
+              type="button"
+              onClick={() => {
+                setPreview(null);
+                onUploaded('');
+              }}
+              className="mt-2 text-xs text-[var(--color-text-muted)] hover:text-rose-400"
+            >
+              Remove logo
+            </button>
+          )}
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">Max 5 MB. Transparent background recommended.</p>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -520,17 +690,25 @@ const ROLE_VARIANTS: Record<string, 'success' | 'warning' | 'info' | 'neutral'> 
 
 function UsersPanel() {
   const toast = useToast();
+  const { user: me } = useAuth();
+  const isPlatformAdmin = me?.role === 'admin';
   const [users, setUsers] = useState<UserEntry[]>([]);
+  const [tenants, setTenants] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserEntry | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', role: 'viewer', password: '' });
-  const [editForm, setEditForm] = useState({ name: '', role: '', mfaEnabled: false });
+  const [editForm, setEditForm] = useState({ name: '', role: '', mfaEnabled: false, tenantId: '' });
   const [deleting, setDeleting] = useState<string | null>(null);
   const [tmpPassword, setTmpPassword] = useState<string | null>(null);
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => {
+    loadUsers();
+    if (isPlatformAdmin) {
+      fetch('/api/admin/tenants').then((r) => r.json()).then((d) => setTenants(d.tenants ?? []));
+    }
+  }, [isPlatformAdmin]);
 
   async function loadUsers() {
     const res = await fetch('/api/users');
@@ -566,10 +744,12 @@ function UsersPanel() {
     e.preventDefault();
     if (!editUser) return;
     setSaving(true);
+    const payload: Record<string, unknown> = { id: editUser.id, name: editForm.name, role: editForm.role, mfaEnabled: editForm.mfaEnabled };
+    if (isPlatformAdmin && editForm.tenantId) payload.tenantId = editForm.tenantId;
     const res = await fetch('/api/users', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: editUser.id, ...editForm }),
+      body: JSON.stringify(payload),
     });
     if (res.ok) { toast.success('User updated'); setEditUser(null); loadUsers(); }
     else toast.error('Failed to update user');
@@ -587,7 +767,7 @@ function UsersPanel() {
 
   function openEdit(u: UserEntry) {
     setEditUser(u);
-    setEditForm({ name: u.name, role: u.role, mfaEnabled: u.mfaEnabled });
+    setEditForm({ name: u.name, role: u.role, mfaEnabled: u.mfaEnabled, tenantId: '' });
   }
 
   return (
@@ -725,6 +905,18 @@ function UsersPanel() {
             <input type="checkbox" id="editMfa" checked={editForm.mfaEnabled} onChange={(e) => setEditForm({ ...editForm, mfaEnabled: e.target.checked })} style={{ width: 'auto' }} />
             <label htmlFor="editMfa" className="text-sm text-[var(--color-text-secondary)]">MFA enabled</label>
           </div>
+          {isPlatformAdmin && tenants.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">
+                Move to Tenant <span className="text-[var(--color-text-muted)] font-normal">(platform admin only)</span>
+              </label>
+              <select value={editForm.tenantId} onChange={(e) => setEditForm({ ...editForm, tenantId: e.target.value })}>
+                <option value="">— Keep current tenant —</option>
+                {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">Reassigning a user to a different tenant will immediately revoke their current session.</p>
+            </div>
+          )}
         </form>
       </Modal>
     </div>

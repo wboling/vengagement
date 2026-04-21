@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Briefcase, Plus, FileText } from 'lucide-react';
+import { Briefcase, Plus, FileText, Upload } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -38,6 +38,8 @@ export default function ClientsPage() {
     name: '', matter: '', type: 'corporate',
     primaryContactName: '', primaryContactEmail: '', notes: '',
   });
+  const [ocgFile, setOcgFile] = useState<File | null>(null);
+  const ocgInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -59,8 +61,20 @@ export default function ClientsPage() {
       body: JSON.stringify(form),
     });
     if (res.ok) {
+      const { client: newClient } = await res.json();
+      // Upload OCG if provided
+      if (ocgFile && newClient?.id) {
+        const fd = new FormData();
+        fd.append('file', ocgFile);
+        fd.append('clientId', newClient.id);
+        fd.append('documentType', 'OCG');
+        fd.append('name', ocgFile.name);
+        fd.append('triggerAiReview', 'true');
+        await fetch('/api/documents/upload', { method: 'POST', body: fd });
+      }
       toast.success('Client added');
       setAddOpen(false);
+      setOcgFile(null);
       setForm({ name: '', matter: '', type: 'corporate', primaryContactName: '', primaryContactEmail: '', notes: '' });
       load();
     } else {
@@ -176,6 +190,34 @@ export default function ClientsPage() {
           <div>
             <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Notes</label>
             <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Engagement notes…" className="resize-none" />
+          </div>
+          <div className="border-t border-[var(--color-border)] pt-4">
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+              Outside Counsel Guidelines (OCG) <span className="text-[var(--color-text-muted)] font-normal">— optional</span>
+            </label>
+            <p className="text-xs text-[var(--color-text-muted)] mb-2">
+              Upload now to trigger an AI review that surfaces billing restrictions, security requirements, and AI usage policies.
+            </p>
+            <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--color-border)] hover:border-[var(--color-text-muted)] text-xs font-medium text-[var(--color-text-secondary)] transition-colors w-fit">
+              <Upload size={12} />
+              {ocgFile ? ocgFile.name : 'Attach OCG file'}
+              <input
+                ref={ocgInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.txt"
+                className="hidden"
+                onChange={(e) => setOcgFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+            {ocgFile && (
+              <button
+                type="button"
+                onClick={() => { setOcgFile(null); if (ocgInputRef.current) ocgInputRef.current.value = ''; }}
+                className="mt-1.5 text-xs text-[var(--color-text-muted)] hover:text-rose-400"
+              >
+                Remove
+              </button>
+            )}
           </div>
         </form>
       </Modal>

@@ -33,6 +33,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
     sections = parseJsonSafe(assignment.questionnaire.sections, []);
   }
 
+  // Fetch outstanding document requests for this vendor
+  const documentRequests = await prisma.documentRequest.findMany({
+    where: { vendorId: assignment.vendorId },
+    orderBy: [{ status: 'asc' }, { requestedAt: 'asc' }],
+    select: { id: true, documentType: true, label: true, description: true, nistRef: true, status: true, dueDate: true },
+  });
+
   return NextResponse.json({
     assignment: {
       id: assignment.id,
@@ -43,6 +50,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
       status: assignment.status,
       sections,
       responses: parseJsonSafe(assignment.responses, {}),
+      documentRequests,
     },
   });
 }

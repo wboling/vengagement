@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Building2, Users, Package, FileText, Plus, Trash2 } from 'lucide-react';
+import { Building2, Users, Package, FileText, Plus, Trash2, Edit2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -34,6 +34,9 @@ export default function AdminPage() {
     adminEmail: '', adminName: '', adminPassword: '',
   });
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [editTenant, setEditTenant] = useState<Tenant | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', industry: '', primaryContact: '' });
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -71,6 +74,25 @@ export default function AdminPage() {
     if (res.ok) { toast.success('Tenant deleted'); load(); }
     else toast.error('Failed to delete tenant');
     setDeleting(null);
+  }
+
+  function openEdit(t: Tenant) {
+    setEditTenant(t);
+    setEditForm({ name: t.name, industry: t.industry ?? '', primaryContact: '' });
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editTenant) return;
+    setEditSaving(true);
+    const res = await fetch('/api/admin/tenants', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: editTenant.id, name: editForm.name, industry: editForm.industry }),
+    });
+    if (res.ok) { toast.success('Tenant updated'); setEditTenant(null); load(); }
+    else toast.error('Failed to update tenant');
+    setEditSaving(false);
   }
 
   async function toggleFeature(tenantId: string, feature: string, value: boolean) {
@@ -157,18 +179,61 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => deleteTenant(t.id, t.name)}
-                  disabled={deleting === t.id}
-                  className="p-1.5 text-[var(--color-text-muted)] hover:text-rose-400 disabled:opacity-40 flex-shrink-0"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => openEdit(t)}
+                    className="p-1.5 text-[var(--color-text-muted)] hover:text-indigo-400 transition-colors"
+                    title="Edit tenant"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                  <button
+                    onClick={() => deleteTenant(t.id, t.name)}
+                    disabled={deleting === t.id}
+                    className="p-1.5 text-[var(--color-text-muted)] hover:text-rose-400 disabled:opacity-40 transition-colors"
+                    title="Delete tenant"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             </Card>
           ))}
         </div>
       </div>
+
+      {/* Edit tenant modal */}
+      <Modal
+        open={!!editTenant}
+        onClose={() => setEditTenant(null)}
+        title="Edit Tenant"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditTenant(null)}>Cancel</Button>
+            <Button loading={editSaving} onClick={saveEdit as unknown as React.MouseEventHandler}>Save Changes</Button>
+          </>
+        }
+      >
+        <form onSubmit={saveEdit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Tenant Name *</label>
+            <input
+              required
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              placeholder="Acme Legal LLP"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Industry</label>
+            <input
+              value={editForm.industry}
+              onChange={(e) => setEditForm({ ...editForm, industry: e.target.value })}
+              placeholder="Law Firm"
+            />
+          </div>
+        </form>
+      </Modal>
 
       {/* Add tenant modal */}
       <Modal

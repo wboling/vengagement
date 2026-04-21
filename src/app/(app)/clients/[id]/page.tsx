@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
-import { Briefcase, FileText, Plus, Download, CheckCircle, AlertCircle, Clock, Edit, ArrowLeft, RefreshCw, Trash2 } from 'lucide-react';
+import { Briefcase, FileText, Plus, Download, CheckCircle, AlertCircle, Clock, Edit, ArrowLeft, RefreshCw, Trash2, BotOff, Bot, Shield } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal, ConfirmModal } from '@/components/ui/Modal';
@@ -137,6 +137,19 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
   const aiResult = selectedDoc?.aiReviewResult ? (() => { try { return JSON.parse(selectedDoc.aiReviewResult!); } catch { return null; } })() : null;
 
+  // Scan all OCG documents for AI usage restrictions
+  const aiRestrictionDoc = client.documents.find((doc) => {
+    if (doc.documentType !== 'OCG') return false;
+    if (!doc.aiReviewResult) return false;
+    try {
+      const r = JSON.parse(doc.aiReviewResult);
+      return r.aiUsageRestrictions?.detected === true;
+    } catch { return false; }
+  });
+  const aiRestrictions = aiRestrictionDoc?.aiReviewResult
+    ? (() => { try { return JSON.parse(aiRestrictionDoc.aiReviewResult!).aiUsageRestrictions; } catch { return null; } })()
+    : null;
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -160,6 +173,64 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
       </div>
+
+      {/* AI Usage Restrictions Banner */}
+      {aiRestrictions && (
+        <div className={`rounded-xl border p-4 ${aiRestrictions.prohibitedUses?.length > 0 ? 'bg-rose-500/5 border-rose-500/20' : 'bg-amber-500/5 border-amber-500/20'}`}>
+          <div className="flex items-start gap-3">
+            <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${aiRestrictions.prohibitedUses?.length > 0 ? 'bg-rose-500/10' : 'bg-amber-500/10'}`}>
+              <BotOff size={15} className={aiRestrictions.prohibitedUses?.length > 0 ? 'text-rose-400' : 'text-amber-400'} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <p className={`text-xs font-bold uppercase tracking-wide ${aiRestrictions.prohibitedUses?.length > 0 ? 'text-rose-400' : 'text-amber-400'}`}>
+                  AI Usage Restrictions Detected
+                </p>
+                {aiRestrictions.requiresClientConsent && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-semibold">
+                    REQUIRES CONSENT
+                  </span>
+                )}
+                {aiRestrictions.requiresDisclosure && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
+                    REQUIRES DISCLOSURE
+                  </span>
+                )}
+              </div>
+              {aiRestrictions.summary && (
+                <p className="text-sm text-[var(--color-text-secondary)] mb-2">{aiRestrictions.summary}</p>
+              )}
+              {aiRestrictions.prohibitedUses?.length > 0 && (
+                <div className="mb-2">
+                  <p className="text-xs font-semibold text-rose-400 mb-1">Prohibited uses:</p>
+                  <ul className="space-y-0.5">
+                    {(aiRestrictions.prohibitedUses as string[]).map((item: string, i: number) => (
+                      <li key={i} className="text-xs text-[var(--color-text-secondary)] flex gap-2">
+                        <span className="text-rose-400 flex-shrink-0">✗</span>{item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {aiRestrictions.permittedUses?.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-emerald-400 mb-1">Permitted uses:</p>
+                  <ul className="space-y-0.5">
+                    {(aiRestrictions.permittedUses as string[]).map((item: string, i: number) => (
+                      <li key={i} className="text-xs text-[var(--color-text-secondary)] flex gap-2">
+                        <span className="text-emerald-400 flex-shrink-0">✓</span>{item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="text-xs text-[var(--color-text-muted)] mt-2">
+                Source: {aiRestrictionDoc?.name}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Details */}
@@ -410,6 +481,11 @@ function AiReviewPanel({ doc, result }: { doc: ClientDetail['documents'][0]; res
   const riskFlags = (result.riskFlags as Array<{ severity: string; description: string; mitigation?: string }>) ?? [];
   const keyProvisions = (result.keyProvisions as string[]) ?? [];
   const recommendations = (result.recommendations as string[]) ?? [];
+  const aiUsage = result.aiUsageRestrictions as {
+    detected?: boolean; summary?: string | null;
+    restrictions?: string[]; permittedUses?: string[]; prohibitedUses?: string[];
+    requiresDisclosure?: boolean; requiresClientConsent?: boolean;
+  } | undefined;
 
   return (
     <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1">
@@ -417,6 +493,26 @@ function AiReviewPanel({ doc, result }: { doc: ClientDetail['documents'][0]; res
         <div>
           <p className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">Summary</p>
           <p className="text-sm text-[var(--color-text-secondary)]">{result.summary as string}</p>
+        </div>
+      )}
+
+      {aiUsage?.detected && (
+        <div className={`rounded-lg border p-3 ${aiUsage.prohibitedUses?.length ? 'bg-rose-500/5 border-rose-500/20' : 'bg-amber-500/5 border-amber-500/20'}`}>
+          <div className="flex items-center gap-2 mb-1.5">
+            <BotOff size={12} className={aiUsage.prohibitedUses?.length ? 'text-rose-400' : 'text-amber-400'} />
+            <p className={`text-xs font-bold uppercase tracking-wide ${aiUsage.prohibitedUses?.length ? 'text-rose-400' : 'text-amber-400'}`}>
+              AI Usage Restrictions
+            </p>
+            {aiUsage.requiresClientConsent && <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Requires Consent</span>}
+            {aiUsage.requiresDisclosure && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Requires Disclosure</span>}
+          </div>
+          {aiUsage.summary && <p className="text-xs text-[var(--color-text-secondary)] mb-2">{aiUsage.summary}</p>}
+          {aiUsage.prohibitedUses?.map((item, i) => (
+            <div key={i} className="text-xs text-rose-300 flex gap-1.5 mb-0.5"><span className="flex-shrink-0">✗</span>{item}</div>
+          ))}
+          {aiUsage.permittedUses?.map((item, i) => (
+            <div key={i} className="text-xs text-emerald-400 flex gap-1.5 mb-0.5"><span className="flex-shrink-0">✓</span>{item}</div>
+          ))}
         </div>
       )}
 

@@ -4,21 +4,33 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 
 type ColorMode = 'dark' | 'light';
 
+interface BrandingConfig {
+  primaryColor?: string;
+  secondaryColor?: string;
+  successColor?: string;
+  warningColor?: string;
+  dangerColor?: string;
+  logoUrl?: string;
+}
+
 interface ThemeContextValue {
   colorMode: ColorMode;
   toggleColorMode: () => void;
   accentColor: string;
+  branding: BrandingConfig;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
   colorMode: 'dark',
   toggleColorMode: () => {},
   accentColor: '#4f46e5',
+  branding: {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [colorMode, setColorMode] = useState<ColorMode>('dark');
   const [accentColor, setAccentColor] = useState('#4f46e5');
+  const [branding, setBranding] = useState<BrandingConfig>({});
   const [mounted, setMounted] = useState(false);
 
   // Load from localStorage + fetch branding from settings
@@ -29,38 +41,51 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
     setMounted(true);
 
-    // Fetch tenant branding to apply accent color
+    // Fetch tenant branding to apply all colors
     fetch('/api/settings')
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (!data?.settings?.branding) return;
         try {
-          const branding = typeof data.settings.branding === 'string'
+          const b: BrandingConfig = typeof data.settings.branding === 'string'
             ? JSON.parse(data.settings.branding)
             : data.settings.branding;
-          if (branding.primaryColor) setAccentColor(branding.primaryColor);
+          setBranding(b);
+          if (b.primaryColor) setAccentColor(b.primaryColor);
         } catch {}
       })
       .catch(() => {});
   }, []);
 
-  // Apply theme to <html> and inject accent CSS variable
+  // Apply theme to <html>
   useEffect(() => {
     if (!mounted) return;
     document.documentElement.setAttribute('data-theme', colorMode);
   }, [colorMode, mounted]);
 
-  // Apply accent color as CSS variable override
+  // Apply all branding colors as CSS variable overrides
   useEffect(() => {
     if (!mounted) return;
     document.documentElement.style.setProperty('--color-accent', accentColor);
-    // Derive hover (slightly darker) — simple heuristic: keep same for now
     document.documentElement.style.setProperty('--color-accent-hover', accentColor);
-    document.documentElement.style.setProperty(
-      '--color-accent-subtle',
-      hexToRgba(accentColor, 0.08)
-    );
-  }, [accentColor, mounted]);
+    document.documentElement.style.setProperty('--color-accent-subtle', hexToRgba(accentColor, 0.08));
+    if (branding.secondaryColor) {
+      document.documentElement.style.setProperty('--color-teal', branding.secondaryColor);
+      document.documentElement.style.setProperty('--color-teal-subtle', hexToRgba(branding.secondaryColor, 0.08));
+    }
+    if (branding.successColor) {
+      document.documentElement.style.setProperty('--color-success', branding.successColor);
+      document.documentElement.style.setProperty('--color-success-subtle', hexToRgba(branding.successColor, 0.1));
+    }
+    if (branding.warningColor) {
+      document.documentElement.style.setProperty('--color-warning', branding.warningColor);
+      document.documentElement.style.setProperty('--color-warning-subtle', hexToRgba(branding.warningColor, 0.1));
+    }
+    if (branding.dangerColor) {
+      document.documentElement.style.setProperty('--color-danger', branding.dangerColor);
+      document.documentElement.style.setProperty('--color-danger-subtle', hexToRgba(branding.dangerColor, 0.1));
+    }
+  }, [accentColor, branding, mounted]);
 
   const toggleColorMode = useCallback(() => {
     setColorMode((prev) => {
@@ -71,7 +96,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ThemeContext.Provider value={{ colorMode, toggleColorMode, accentColor }}>
+    <ThemeContext.Provider value={{ colorMode, toggleColorMode, accentColor, branding }}>
       {children}
     </ThemeContext.Provider>
   );
