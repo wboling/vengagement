@@ -18,6 +18,10 @@ const ROLE_VARIANTS: Record<string, 'success' | 'warning' | 'info' | 'neutral'> 
   admin: 'success', company_admin: 'warning', responder: 'info', viewer: 'neutral',
 };
 
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Admin', company_admin: 'Company Admin', responder: 'Responder', viewer: 'Viewer',
+};
+
 export default function UsersPage() {
   const toast = useToast();
   const [users, setUsers] = useState<User[]>([]);
@@ -130,9 +134,9 @@ export default function UsersPage() {
                 <tr key={u.id}>
                   <td className="font-medium text-[var(--color-text-primary)]">{u.name}</td>
                   <td className="text-[var(--color-text-muted)]">{u.email}</td>
-                  <td>
-                    <Badge variant={ROLE_VARIANTS[u.role] ?? 'neutral'}>
-                      {u.role.replace('_', ' ')}
+                  <td className="py-2">
+                    <Badge variant={ROLE_VARIANTS[u.role] ?? 'neutral'} className="whitespace-nowrap">
+                      {ROLE_LABELS[u.role] ?? u.role.replace(/_/g, ' ')}
                     </Badge>
                   </td>
                   <td>
